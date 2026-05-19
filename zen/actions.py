@@ -19,6 +19,9 @@ def execute_action(action: Action, force: bool = False, allow_docker: bool = Fal
             return f"blocked stale process identity: {action.target}"
         if not isinstance(pgid, int) or pgid <= 1:
             return f"blocked unsafe process group: {action.target}"
+        unit = action.meta.get("runtime", {}).get("unit") if isinstance(action.meta.get("runtime"), dict) else None
+        if unit:
+            run_cmd(["systemctl", "--user", "stop", str(unit)], timeout=10)
         kill_process_group(pgid, signal.SIGTERM)
         for pid in action.pids:
             kill_process_tree(pid, signal.SIGTERM)

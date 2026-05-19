@@ -74,6 +74,29 @@ To make an adopted process killable, the user must explicitly opt in:
 zen adopt PID --ttl 20m --allow-kill
 ```
 
+## Budget Contract
+
+Budget flags on `zen run` are enforced only when Zen can launch the command via:
+
+```bash
+systemd-run --user --scope
+```
+
+In that mode Zen applies:
+
+- `--mem` as `MemoryMax`
+- `--cpu` as `CPUQuota`
+- `--pids` as `TasksMax`
+
+If systemd-run is unavailable or `ZEN_DISABLE_SYSTEMD=1` is set, Zen still
+starts the command and records the budget as advisory in lease runtime metadata.
+The CLI prints whether the budget was `enforced` or `advisory`.
+
+## Lease Store Contract
+
+Lease state is written with an exclusive file lock and atomic rename. Concurrent
+Zen invocations should not clobber each other's lease records.
+
 ## Docker Contract
 
 Docker cleanup is blocked by default, even under `--execute`.

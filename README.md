@@ -42,8 +42,9 @@ control plane for agent workload hygiene.
 - dry-run cleanup by default
 - protected browsers, terminals, desktop processes, and active LLM sessions
 - leases with TTLs for agent/build/test work
+- locked, atomic lease-state writes for concurrent agent runs
 - observe-only adoption for already-running processes
-- advisory CPU/RAM/process-count budget metadata
+- CPU/RAM/process-count budgets via systemd-run when available
 - machine-readable JSON output for automation
 - safety tests that prove stale, forged, and non-owned process kills are blocked
 
@@ -148,8 +149,10 @@ Budget metadata can be recorded now:
 zen run --class eval --ttl 2h --mem 8g --cpu 4 --pids 128 -- command
 ```
 
-Budgets are advisory in the current MVP. Hard enforcement via cgroups/systemd is
-planned.
+When `systemd-run --user --scope` is available, Zen runs budgeted commands in a
+transient systemd scope with `MemoryMax`, `CPUQuota`, and `TasksMax` properties.
+If systemd is unavailable or disabled with `ZEN_DISABLE_SYSTEMD=1`, the command
+still runs and the lease records that budgets were advisory.
 
 ## JSON Output
 
@@ -199,7 +202,7 @@ Current safety coverage verifies:
 
 ## Roadmap
 
-- cgroup/systemd hard limits for leased commands
+- direct cgroup v2 backend for hosts without user systemd
 - process-count enforcement
 - historical pressure logs
 - desktop notifications

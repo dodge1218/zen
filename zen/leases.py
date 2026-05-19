@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 import tempfile
@@ -16,7 +18,16 @@ def lease_path() -> Path:
     return state_dir() / "leases.json"
 
 
+def lock_path() -> Path:
+    return state_dir() / "leases.lock"
+
+
 def load_leases() -> list[Lease]:
+    with _locked(exclusive=False):
+        return _read_leases_unlocked()
+
+
+def _read_leases_unlocked() -> list[Lease]:
     path = lease_path()
     if not path.exists():
         return []
@@ -36,6 +47,11 @@ def load_leases() -> list[Lease]:
 
 
 def save_leases(leases: list[Lease]) -> None:
+    with _locked(exclusive=True):
+        _write_leases_unlocked(leases)
+
+
+def _write_leases_unlocked(leases: list[Lease]) -> None:
     path = lease_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps([lease.__dict__ for lease in leases], indent=2) + "\n"
@@ -63,6 +79,7 @@ def create_lease(
     cwd: str | None = None,
     allow_kill: bool = False,
     budget: dict | None = None,
+    runtime: dict | None = None,
 ) -> Lease:
     lease = Lease(
         id=str(uuid.uuid4()),
@@ -77,22 +94,38 @@ def create_lease(
         allow_kill=allow_kill,
         budget=budget or {},
         identity=process_identity(pid),
+        runtime=runtime or {},
     )
-    leases = load_leases()
-    leases.append(lease)
-    save_leases(leases)
+    with _locked(exclusive=True):
+        leases = _read_leases_unlocked()
+        leases.append(lease)
+        _write_leases_unlocked(leases)
     return lease
 
 
 def prune_dead_leases() -> list[Lease]:
     live: list[Lease] = []
-    for lease in load_leases():
-        try:
-            os.kill(lease.pid, 0)
-            live.append(lease)
-        except ProcessLookupError:
-            continue
-        except PermissionError:
-            live.append(lease)
-    save_leases(live)
+    with _locked(exclusive=True):
+        leases = _read_leases_unlocked()
+        for lease in leases:
+            try:
+                os.kill(lease.pid, 0)
+                live.append(lease)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                live.append(lease)
+        _write_leases_unlocked(live)
     return live
+
+
+@contextmanager
+def _locked(exclusive: bool):
+    path = lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)

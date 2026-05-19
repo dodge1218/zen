@@ -83,6 +83,7 @@ class Lease:
     allow_kill: bool = False
     budget: dict[str, Any] = field(default_factory=dict)
     identity: dict[str, Any] = field(default_factory=dict)
+    runtime: dict[str, Any] = field(default_factory=dict)
 
     @property
     def expired_at(self) -> float | None:

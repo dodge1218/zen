@@ -5,7 +5,6 @@ import json
 import os
 from pathlib import Path
 import shlex
-import subprocess
 import sys
 import time
 
@@ -14,6 +13,7 @@ from .audit import CleanAudit, recommendations, summarize_processes
 from .config import default_policy, policy_path, write_default_policy
 from .leases import create_lease, load_leases, prune_dead_leases
 from .policy import plan_actions, pressure_level
+from .runner import build_run_spec, popen_run_spec
 from .scanner import load_average, read_memory, scan_docker, scan_processes
 from .util import fmt_kb, parse_ttl
 
@@ -48,9 +48,9 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--class", dest="klass", default="generic")
     run_p.add_argument("--ttl")
     run_p.add_argument("--cleanup")
-    run_p.add_argument("--mem", help="Memory budget metadata, e.g. 2g or 750m. Advisory until cgroup enforcement lands.")
-    run_p.add_argument("--cpu", type=float, help="CPU core budget metadata. Advisory until cgroup enforcement lands.")
-    run_p.add_argument("--pids", type=int, help="Process-count budget metadata. Advisory until cgroup enforcement lands.")
+    run_p.add_argument("--mem", help="Memory limit for systemd-backed runs, e.g. 2g or 750m.")
+    run_p.add_argument("--cpu", type=float, help="CPU core limit for systemd-backed runs, e.g. 1.5.")
+    run_p.add_argument("--pids", type=int, help="Process-count limit for systemd-backed runs.")
     run_p.add_argument("--force", action="store_true", help="Start even when current pressure is red or black.")
     run_p.add_argument("command", nargs=argparse.REMAINDER)
 
@@ -258,11 +258,30 @@ def cmd_run(args) -> int:
         print(f"refusing to start lease while pressure is {level}; pass --force to override", file=sys.stderr)
         return 75
     ttl = parse_ttl(args.ttl)
-    proc = subprocess.Popen(command, start_new_session=True)
-    lease = create_lease(args.klass, command, proc.pid, os.getpgid(proc.pid), ttl, args.cleanup, allow_kill=True, budget=_budget_from_args(args))
+    budget = _budget_from_args(args)
+    try:
+        spec = build_run_spec(command, budget, cwd=os.getcwd())
+    except ValueError as exc:
+        print(f"invalid budget: {exc}", file=sys.stderr)
+        return 2
+    proc = popen_run_spec(spec)
+    lease = create_lease(
+        args.klass,
+        command,
+        proc.pid,
+        os.getpgid(proc.pid),
+        ttl,
+        args.cleanup,
+        allow_kill=True,
+        budget=budget,
+        runtime=spec.runtime,
+    )
     print(f"lease {lease.id} pid={lease.pid} pgid={lease.pgid} class={lease.klass}")
     if lease.budget:
-        print(f"budget advisory: {_format_budget(lease.budget)}")
+        status = "enforced" if lease.runtime.get("budgets_enforced") else "advisory"
+        print(f"budget {status}: {_format_budget(lease.budget)}")
+        if lease.runtime.get("fallback_reason"):
+            print(f"budget fallback: {lease.runtime['fallback_reason']}")
     try:
         return proc.wait()
     finally:
@@ -313,7 +332,11 @@ def cmd_leases() -> int:
         if lease.expired_at:
             remaining = f"{int(lease.expired_at - now)}s"
         budget = f" budget={_format_budget(lease.budget)}" if lease.budget else ""
-        print(f"{lease.id} pid={lease.pid} pgid={lease.pgid} class={lease.klass} ttl_remaining={remaining}{budget} cmd={' '.join(lease.command)}")
+        runtime = ""
+        if lease.runtime:
+            enforced = "enforced" if lease.runtime.get("budgets_enforced") else "advisory"
+            runtime = f" backend={lease.runtime.get('backend')} budgets={enforced}"
+        print(f"{lease.id} pid={lease.pid} pgid={lease.pgid} class={lease.klass} ttl_remaining={remaining}{budget}{runtime} cmd={' '.join(lease.command)}")
     return 0
 
 

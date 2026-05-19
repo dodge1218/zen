@@ -71,6 +71,7 @@ def _expired_lease_actions(processes: dict[int, ProcessInfo]) -> list[Action]:
                             "lease_id": lease.id,
                             "budget": lease.budget,
                             "identity": lease.identity,
+                            "runtime": lease.runtime,
                         },
                     )
                 )

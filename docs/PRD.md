@@ -193,7 +193,8 @@ Must classify:
 
 - start a command in a distinct process group
 - record command, pid, pgid, class, cwd, start time, and TTL
-- record advisory CPU, memory, and process-count budgets when provided
+- record CPU, memory, and process-count budgets when provided
+- enforce budgets through `systemd-run --user --scope` when available
 - clean dead leases from state
 - refuse to start new leased work under red/black pressure unless forced
 
@@ -256,11 +257,10 @@ The config must allow users to extend or override:
 
 ### Enforcement
 
-- cgroup v2 memory limits
-- CPU quotas
-- process count caps
+- direct cgroup v2 memory limits
+- direct CPU quotas
+- direct process count caps
 - wall-clock TTL enforcement
-- systemd-run backend
 - Kubernetes/job backend
 - Docker/container backend
 

@@ -120,7 +120,7 @@ zen clean
 The frontier developer experience must be composable:
 
 ```bash
-zen run --class eval --ttl 2h --budget-mem 8g --budget-cpu 4 -- command
+zen run --class eval --ttl 2h --mem 8g --cpu 4 -- command
 ```
 
 The same product must serve both:

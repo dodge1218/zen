@@ -5,6 +5,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ from zen.audit import CleanAudit
 from zen.leases import create_lease, load_leases
 from zen.models import Action, DockerContainer, MemoryInfo, ProcessInfo
 from zen.policy import plan_actions
+from zen.runner import build_run_spec, normalize_memory_max, systemd_properties_for_budget
 from zen.config import Policy
 from zen.util import process_identity
 
@@ -151,6 +153,68 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(lease.budget["mem"], "2g")
         self.assertEqual(lease.budget["cpu"], 1.5)
         self.assertEqual(lease.budget["pids"], 12)
+
+    def test_concurrent_lease_creates_do_not_clobber_state(self) -> None:
+        def create(index: int) -> None:
+            create_lease(
+                f"concurrent-{index}",
+                ["sleep", "30"],
+                os.getpid(),
+                os.getpgid(os.getpid()),
+                ttl_seconds=60,
+                cleanup=None,
+                allow_kill=False,
+            )
+
+        threads = [threading.Thread(target=create, args=(index,)) for index in range(12)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(len(load_leases()), 12)
+
+    def test_budget_properties_are_normalized_for_systemd(self) -> None:
+        props = systemd_properties_for_budget({"mem": "1.5g", "cpu": 1.25, "pids": 12})
+
+        self.assertEqual(props["MemoryMax"], str(int(1.5 * 1024**3)))
+        self.assertEqual(props["CPUQuota"], "125%")
+        self.assertEqual(props["TasksMax"], "12")
+
+    def test_invalid_budget_values_are_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            normalize_memory_max("0g")
+        with self.assertRaises(ValueError):
+            systemd_properties_for_budget({"cpu": 0})
+        with self.assertRaises(ValueError):
+            systemd_properties_for_budget({"pids": -1})
+
+    def test_budgeted_run_falls_back_when_systemd_disabled(self) -> None:
+        old_value = os.environ.get("ZEN_DISABLE_SYSTEMD")
+        os.environ["ZEN_DISABLE_SYSTEMD"] = "1"
+        try:
+            spec = build_run_spec(["echo", "ok"], {"mem": "64m"})
+        finally:
+            if old_value is None:
+                os.environ.pop("ZEN_DISABLE_SYSTEMD", None)
+            else:
+                os.environ["ZEN_DISABLE_SYSTEMD"] = old_value
+
+        self.assertEqual(spec.command, ["echo", "ok"])
+        self.assertEqual(spec.runtime["backend"], "subprocess")
+        self.assertFalse(spec.runtime["budgets_enforced"])
+
+    def test_budgeted_run_uses_systemd_when_available(self) -> None:
+        spec = build_run_spec(["echo", "ok"], {"mem": "64m", "cpu": 0.5, "pids": 4}, cwd="/tmp")
+
+        if spec.runtime["backend"] == "subprocess":
+            self.assertFalse(spec.runtime["budgets_enforced"])
+            return
+        self.assertEqual(spec.command[0], "systemd-run")
+        self.assertIn("--scope", spec.command)
+        self.assertIn("--working-directory", spec.command)
+        self.assertTrue(spec.runtime["budgets_enforced"])
+        self.assertEqual(spec.runtime["properties"]["MemoryMax"], str(64 * 1024**2))
 
     def test_docker_stop_blocked_without_allow_docker(self) -> None:
         action = Action(
