@@ -58,31 +58,24 @@ class Policy:
         "pnpm -r build",
     )
     ephemeral_cwd_prefixes: tuple[str, ...] = ()
-    poc_container_names: tuple[str, ...] = (
-        "k8s-mcp-unauth-poc-control-plane",
-    )
+    poc_container_names: tuple[str, ...] = ()
     poc_container_images: tuple[str, ...] = (
         "kindest/node",
         "curlimages/curl",
     )
-    keep_container_names: tuple[str, ...] = (
-        "nanobot-poc-test",
-        "ms1htcbd",
-        "sms1obot-mcp-server-shim",
-        "sms1obot-mcp-server",
-    )
+    keep_container_names: tuple[str, ...] = ()
     thresholds: Thresholds = field(default_factory=Thresholds)
 
 
 def state_dir() -> Path:
-    override = os.environ.get("ZEN_STATE_DIR") or os.environ.get("RAMLM_STATE_DIR")
+    override = os.environ.get("ZEN_STATE_DIR")
     path = Path(override).expanduser() if override else Path.home() / ".local" / "state" / "zen"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def config_dir() -> Path:
-    override = os.environ.get("ZEN_CONFIG_DIR") or os.environ.get("RAMLM_CONFIG_DIR")
+    override = os.environ.get("ZEN_CONFIG_DIR")
     path = Path(override).expanduser() if override else Path.home() / ".config" / "zen"
     path.mkdir(parents=True, exist_ok=True)
     return path

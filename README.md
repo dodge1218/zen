@@ -45,7 +45,7 @@ control plane for agent workload hygiene.
 - observe-only adoption for already-running processes
 - advisory CPU/RAM/process-count budget metadata
 - machine-readable JSON output for automation
-- safety tests that prove non-owned process kills are blocked
+- safety tests that prove stale, forged, and non-owned process kills are blocked
 
 ## Install
 
@@ -60,7 +60,7 @@ python3 -m pip install -e .
 Or run directly from the checkout:
 
 ```bash
-PYTHONPATH=. python3 -m ramlm.cli clean
+PYTHONPATH=. python3 -m zen.cli clean
 ```
 
 ## Quick Start
@@ -69,6 +69,7 @@ PYTHONPATH=. python3 -m ramlm.cli clean
 zen status
 zen clean
 zen clean --json
+zen clean --json --verbose
 ```
 
 Example:
@@ -117,7 +118,8 @@ Default safety rules:
 
 - `zen clean` is dry-run.
 - `zen clean --json` is read-only and cannot be combined with `--execute`.
-- `zen clean --execute` can kill only expired leases created by `zen run`.
+- `zen clean --execute` can kill only expired leases with verified process
+  identity.
 - `zen adopt PID` is observe-only unless `--allow-kill` is explicit.
 - Docker cleanup requires `--allow-docker`.
 - Heuristic matches are review-only; they are never enough to kill a process.
@@ -135,9 +137,10 @@ zen run --class test --ttl 30m -- pytest
 zen run --class agent-scan --ttl 45m -- codex exec "scan this repository"
 ```
 
-When a Zen-owned lease expires, `zen clean --execute` may stop its process tree.
-That is the core lifecycle contract: Zen only cleans process trees it owns or
-that were explicitly adopted with kill permission.
+When a Zen-owned lease expires, `zen clean --execute` may stop its process
+group. Before signaling, Zen re-checks the process UID, process group, session,
+and Linux start-time tick recorded in the lease. Stale or hand-edited lease
+state becomes review-only.
 
 Budget metadata can be recorded now:
 
@@ -156,6 +159,8 @@ zen clean --json
 
 The JSON payload includes pressure, load, memory/swap, workload buckets,
 recommendations, top CPU, top memory, cleanup candidates, and containers.
+Potentially sensitive local details are redacted by default; pass
+`--verbose` only when the output will stay local.
 
 Schema: [docs/JSON_SCHEMA.md](docs/JSON_SCHEMA.md)
 
@@ -185,6 +190,7 @@ PYTHONPATH=. python3 -m unittest discover -s tests -v
 Current safety coverage verifies:
 
 - non-owned process kills are blocked before signal delivery
+- forged/stale process identities are blocked before signal delivery
 - adopted leases without `--allow-kill` survive cleanup
 - Zen-owned expired leases can be stopped
 - Docker stops require `--allow-docker`
@@ -198,7 +204,7 @@ Current safety coverage verifies:
 - historical pressure logs
 - desktop notifications
 - fleet policy/reporting mode
-- package/module rename from `ramlm` to `zen`
+- cgroup-owned Docker/container cleanup metadata
 
 ## Non-Goals
 

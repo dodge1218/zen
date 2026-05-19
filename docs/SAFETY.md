@@ -50,9 +50,11 @@ zen clean --execute
 process kills are allowed only when all of these are true:
 
 - the action targets an expired lease
-- the lease was created by `zen run`
+- the lease was created by `zen run`, or adopted with explicit `--allow-kill`
 - the lease has `allow_kill=true`
 - the target process is not protected
+- the current process identity matches the lease identity
+- the target process group is valid and not a system group
 
 This means heuristic matches are never enough to kill a process.
 
@@ -109,6 +111,8 @@ Validated by automated tests in `tests/test_safety.py`:
 - The known kind PoC container was not stopped by `zen clean --execute` because
   `--allow-docker` was not present.
 - A synthetic non-owned kill action was blocked before signal delivery.
+- A forged/stale process identity was blocked before signal delivery.
+- A stale leased process identity became review-only instead of executable.
 - Heuristic ephemeral process matches produced review actions, not kill actions.
 - `zen clean --json --execute` is rejected.
 

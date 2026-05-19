@@ -68,6 +68,11 @@ def child_pids(pid: int) -> list[int]:
 
 
 def parse_stat(stat: str) -> tuple[str, str, int, int, int]:
+    name, state, ppid, pgid, sid, _ = parse_stat_with_start_time(stat)
+    return name, state, ppid, pgid, sid
+
+
+def parse_stat_with_start_time(stat: str) -> tuple[str, str, int, int, int, int | None]:
     left = stat.rfind(")")
     if left == -1:
         raise ValueError("bad stat")
@@ -77,7 +82,58 @@ def parse_stat(stat: str) -> tuple[str, str, int, int, int]:
     ppid = int(fields[1])
     pgid = int(fields[2])
     sid = int(fields[3])
-    return name, state, ppid, pgid, sid
+    try:
+        start_time = int(fields[19])
+    except (IndexError, ValueError):
+        start_time = None
+    return name, state, ppid, pgid, sid, start_time
+
+
+def process_identity(pid: int) -> dict[str, int | str | None]:
+    stat = read_text(Path(f"/proc/{pid}/stat"))
+    if not stat:
+        return {}
+    try:
+        name, _, _, pgid, sid, start_time = parse_stat_with_start_time(stat)
+    except (IndexError, ValueError):
+        return {}
+    uid = None
+    for line in read_text(Path(f"/proc/{pid}/status")).splitlines():
+        if line.startswith("Uid:"):
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                uid = int(parts[1])
+            break
+    return {
+        "pid": pid,
+        "uid": uid,
+        "pgid": pgid,
+        "sid": sid,
+        "start_time_ticks": start_time,
+        "name": name,
+    }
+
+
+def identity_matches(pid: int, expected: dict | None) -> bool:
+    if not expected:
+        return False
+    current = process_identity(pid)
+    if not current:
+        return False
+    required_keys = ("uid", "pgid", "sid", "start_time_ticks")
+    for key in required_keys:
+        if expected.get(key) is None or current.get(key) != expected.get(key):
+            return False
+    return True
+
+
+def kill_process_group(pgid: int, sig: int = signal.SIGTERM) -> None:
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        pass
 
 
 def unique_ints(values: Iterable[int]) -> list[int]:
@@ -88,4 +144,3 @@ def unique_ints(values: Iterable[int]) -> list[int]:
             seen.add(value)
             out.append(value)
     return out
-

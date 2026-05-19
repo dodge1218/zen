@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
 
 from .config import state_dir
 from .models import Lease
+from .util import process_identity
 
 
 def lease_path() -> Path:
@@ -20,7 +22,9 @@ def load_leases() -> list[Lease]:
         return []
     try:
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except OSError:
+        return []
+    except json.JSONDecodeError:
         return []
     leases: list[Lease] = []
     for item in data:
@@ -32,7 +36,21 @@ def load_leases() -> list[Lease]:
 
 
 def save_leases(leases: list[Lease]) -> None:
-    lease_path().write_text(json.dumps([lease.__dict__ for lease in leases], indent=2) + "\n")
+    path = lease_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps([lease.__dict__ for lease in leases], indent=2) + "\n"
+    fd, tmp_name = tempfile.mkstemp(prefix=".leases.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as tmp:
+            tmp.write(payload)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_name, path)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
 
 
 def create_lease(
@@ -58,6 +76,7 @@ def create_lease(
         cleanup=cleanup,
         allow_kill=allow_kill,
         budget=budget or {},
+        identity=process_identity(pid),
     )
     leases = load_leases()
     leases.append(lease)

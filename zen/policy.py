@@ -36,9 +36,27 @@ def _expired_lease_actions(processes: dict[int, ProcessInfo]) -> list[Action]:
     now = time.time()
     for lease in prune_dead_leases():
         if lease.expired_at and lease.expired_at <= now:
-            if lease.pid in processes and processes[lease.pid].protected:
+            proc = processes.get(lease.pid)
+            if proc and proc.protected:
                 continue
             if lease.allow_kill:
+                if not proc or not _lease_identity_matches(lease.identity, proc):
+                    actions.append(
+                        Action(
+                            kind="review",
+                            target=f"lease:{lease.id}",
+                            reason=f"expired {lease.klass} lease has stale or unverifiable process identity",
+                            pids=[lease.pid],
+                            risk="blocked",
+                            meta={
+                                "pgid": lease.pgid,
+                                "command": " ".join(lease.command),
+                                "lease_id": lease.id,
+                                "budget": lease.budget,
+                            },
+                        )
+                    )
+                    continue
                 actions.append(
                     Action(
                         kind="kill-tree",
@@ -52,6 +70,7 @@ def _expired_lease_actions(processes: dict[int, ProcessInfo]) -> list[Action]:
                             "owned_by_zen": True,
                             "lease_id": lease.id,
                             "budget": lease.budget,
+                            "identity": lease.identity,
                         },
                     )
                 )
@@ -67,6 +86,21 @@ def _expired_lease_actions(processes: dict[int, ProcessInfo]) -> list[Action]:
                     )
                 )
     return actions
+
+
+def _lease_identity_matches(identity: dict, proc: ProcessInfo) -> bool:
+    if not identity:
+        return False
+    checks = {
+        "uid": proc.uid,
+        "pgid": proc.pgid,
+        "sid": proc.sid,
+        "start_time_ticks": proc.start_time_ticks,
+    }
+    for key, value in checks.items():
+        if identity.get(key) is None or identity.get(key) != value:
+            return False
+    return True
 
 
 def _ephemeral_process_actions(processes: dict[int, ProcessInfo], tier: str) -> list[Action]:

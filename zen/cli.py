@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     clean_p.add_argument("--force", action="store_true", help="Escalate process cleanup to SIGKILL after SIGTERM.")
     clean_p.add_argument("--allow-docker", action="store_true", help="Allow stopping matching Docker containers during --execute.")
     clean_p.add_argument("--json", action="store_true", help="Print audit as JSON. Refuses to combine with --execute.")
+    clean_p.add_argument("--verbose", action="store_true", help="Include command lines, cwd, and container names in JSON output.")
 
     run_p = sub.add_parser("run", help="Run a command under a Zen lease.")
     run_p.add_argument("--class", dest="klass", default="generic")
@@ -86,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "watch":
         return cmd_watch(policy, interval=args.interval, tier=args.tier)
     if args.cmd == "clean":
-        return cmd_clean(policy, tier=args.tier, execute=args.execute, force=args.force, allow_docker=args.allow_docker, json_output=args.json)
+        return cmd_clean(policy, tier=args.tier, execute=args.execute, force=args.force, allow_docker=args.allow_docker, json_output=args.json, verbose=args.verbose)
     if args.cmd == "run":
         return cmd_run(args)
     if args.cmd == "adopt":
@@ -178,13 +179,13 @@ def cmd_watch(policy, interval: float, tier: str) -> int:
         return 130
 
 
-def cmd_clean(policy, tier: str, execute: bool, force: bool, allow_docker: bool, json_output: bool) -> int:
+def cmd_clean(policy, tier: str, execute: bool, force: bool, allow_docker: bool, json_output: bool, verbose: bool) -> int:
     if json_output and execute:
         print("zen clean --json cannot be combined with --execute", file=sys.stderr)
         return 2
     audit = build_clean_audit(policy, tier=tier)
     if json_output:
-        print(json.dumps(audit.to_dict(), indent=2, sort_keys=True))
+        print(json.dumps(audit.to_dict(redact=not verbose), indent=2, sort_keys=True))
         return 0
     print_clean_audit(audit, execute=execute, force=force, allow_docker=allow_docker)
     return 0

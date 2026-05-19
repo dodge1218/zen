@@ -39,6 +39,8 @@ class ProcessInfo:
     swap_kb: int
     cpu_pct: float
     cmdline: str
+    uid: int | None = None
+    start_time_ticks: int | None = None
     cwd: str | None = None
     children: list[int] = field(default_factory=list)
     tags: set[str] = field(default_factory=set)
@@ -80,6 +82,7 @@ class Lease:
     cleanup: str | None = None
     allow_kill: bool = False
     budget: dict[str, Any] = field(default_factory=dict)
+    identity: dict[str, Any] = field(default_factory=dict)
 
     @property
     def expired_at(self) -> float | None:

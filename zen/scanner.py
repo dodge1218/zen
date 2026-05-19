@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import Policy
 from .models import DockerContainer, MemoryInfo, ProcessInfo
-from .util import parse_stat, read_text, run_cmd
+from .util import parse_stat_with_start_time, read_text, run_cmd
 
 
 def read_memory() -> MemoryInfo:
@@ -52,7 +52,7 @@ def scan_processes(policy: Policy) -> dict[int, ProcessInfo]:
         if not stat:
             continue
         try:
-            name, state, ppid, pgid, sid = parse_stat(stat)
+            name, state, ppid, pgid, sid, start_time_ticks = parse_stat_with_start_time(stat)
         except ValueError:
             continue
         status = _status_fields(entry / "status")
@@ -66,6 +66,8 @@ def scan_processes(policy: Policy) -> dict[int, ProcessInfo]:
             ppid=ppid,
             pgid=pgid,
             sid=sid,
+            uid=_uid(status),
+            start_time_ticks=start_time_ticks,
             name=name,
             state=state,
             rss_kb=status.get("VmRSS", 0),
@@ -181,3 +183,12 @@ def _proc_times() -> dict[int, int]:
 def _total_jiffies() -> int:
     line = read_text(Path("/proc/stat")).splitlines()[0]
     return sum(int(part) for part in line.split()[1:] if part.isdigit())
+
+
+def _uid(status: dict[str, int | list[int]]) -> int | None:
+    value = status.get("Uid")
+    if isinstance(value, list) and value:
+        return value[0]
+    if isinstance(value, int):
+        return value
+    return None

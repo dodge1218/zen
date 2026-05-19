@@ -32,7 +32,7 @@ class CleanAudit:
     actions: list[Action]
     containers: list[DockerContainer]
 
-    def to_dict(self) -> dict:
+    def to_dict(self, redact: bool = True) -> dict:
         return {
             "schema_version": 1,
             "pressure": self.pressure,
@@ -50,10 +50,10 @@ class CleanAudit:
             },
             "workloads": [bucket.__dict__ for bucket in self.buckets],
             "recommendations": [item.__dict__ for item in self.recommendations],
-            "top_cpu": [_process_dict(proc) for proc in self.top_cpu],
-            "top_memory": [_process_dict(proc) for proc in self.top_memory],
-            "actions": [_action_dict(action) for action in self.actions],
-            "containers": [container.__dict__ for container in self.containers],
+            "top_cpu": [_process_dict(proc, redact=redact) for proc in self.top_cpu],
+            "top_memory": [_process_dict(proc, redact=redact) for proc in self.top_memory],
+            "actions": [_action_dict(action, redact=redact) for action in self.actions],
+            "containers": [_container_dict(container, redact=redact) for container in self.containers],
         }
 
 
@@ -92,7 +92,7 @@ def recommendations(
     if memory.swap_used_pct >= 50:
         out.append(Recommendation("watch", "Swap is high; expect lag even with free RAM. A swap refresh may help after load drops."))
     if by_name.get("agents") and by_name["agents"].cpu_pct >= 100:
-        out.append(Recommendation("review", "Agent CPU is the top pressure source; inspect active Codex/Claude/OpenClaw runs before stopping anything."))
+        out.append(Recommendation("review", "Agent CPU is the top pressure source; inspect active coding-agent runs before stopping anything."))
     if by_name.get("browsers") and by_name["browsers"].rss_kb >= 2 * 1024 * 1024:
         out.append(Recommendation("protect", "Browsers are large but protected; Zen will not close tabs or browser processes."))
     if any(action.kind == "docker-stop" for action in actions):
@@ -108,7 +108,7 @@ def recommendations(
     return out[:5]
 
 
-def _process_dict(proc: ProcessInfo) -> dict:
+def _process_dict(proc: ProcessInfo, redact: bool) -> dict:
     return {
         "pid": proc.pid,
         "ppid": proc.ppid,
@@ -118,23 +118,45 @@ def _process_dict(proc: ProcessInfo) -> dict:
         "rss_kb": proc.rss_kb,
         "swap_kb": proc.swap_kb,
         "cpu_pct": proc.cpu_pct,
-        "cmdline": proc.cmdline,
-        "cwd": proc.cwd,
+        "cmdline": "<redacted>" if redact else proc.cmdline,
+        "cwd": None if redact else proc.cwd,
         "tags": sorted(proc.tags),
         "protected": proc.protected,
     }
 
 
-def _action_dict(action: Action) -> dict:
+def _action_dict(action: Action, redact: bool) -> dict:
+    meta = dict(action.meta)
+    if redact:
+        for key in ("cmdline", "cwd", "command", "identity"):
+            if key in meta:
+                meta[key] = "<redacted>"
     return {
         "kind": action.kind,
-        "target": action.target,
+        "target": _redact_target(action.target) if redact else action.target,
         "reason": action.reason,
-        "command": action.command,
+        "command": None if redact else action.command,
         "pids": action.pids,
         "risk": action.risk,
-        "meta": action.meta,
+        "meta": meta,
     }
+
+
+def _container_dict(container: DockerContainer, redact: bool) -> dict:
+    if not redact:
+        return container.__dict__
+    return {
+        "container_id": "<redacted>",
+        "name": "<redacted>",
+        "image": "<redacted>",
+        "status": container.status,
+    }
+
+
+def _redact_target(target: str) -> str:
+    if target.startswith("lease:") or target.startswith("pid:"):
+        return target
+    return "<redacted>"
 
 
 def _bucket_name(proc: ProcessInfo) -> str:
@@ -157,7 +179,7 @@ def _bucket_name(proc: ProcessInfo) -> str:
         return "build/tools"
     if _is_kernel_or_system(name):
         return "kernel/system"
-    if name in {"python", "python3", "node", "nanobot", "ollama"}:
+    if name in {"python", "python3", "node", "ollama"}:
         return "services"
     return "other"
 

@@ -3,6 +3,8 @@
 `zen clean --json` emits a read-only audit document. It cannot be combined with
 `--execute`, so consumers can collect this payload from active developer
 machines, CI runners, or agent workers without granting cleanup authority.
+Command lines, cwd values, and container details are redacted by default. Use
+`zen clean --json --verbose` only for trusted local debugging.
 
 ## Stability
 
@@ -98,7 +100,7 @@ CPU can exceed `100.0` because it is summed across processes and CPU cores.
 ```json
 {
   "level": "review",
-  "message": "Agent CPU is the top pressure source; inspect active Codex/Claude/OpenClaw runs before stopping anything."
+  "message": "Agent CPU is the top pressure source; inspect active coding-agent runs before stopping anything."
 }
 ```
 
@@ -126,8 +128,8 @@ ownership metadata, `--execute`, `--allow-docker`, and `--allow-kill`.
   "rss_kb": 100000,
   "swap_kb": 50000,
   "cpu_pct": 35.5,
-  "cmdline": "codex --yolo",
-  "cwd": "/home/user/project",
+  "cmdline": "<redacted>",
+  "cwd": null,
   "tags": ["agent", "protect"],
   "protected": true
 }
@@ -140,9 +142,9 @@ ownership metadata, `--execute`, `--allow-docker`, and `--allow-kill`.
 ```json
 {
   "kind": "docker-stop",
-  "target": "k8s-mcp-unauth-poc-control-plane",
+  "target": "<redacted>",
   "reason": "PoC/ephemeral container: kindest/node:v1.35.0",
-  "command": ["docker", "stop", "k8s-mcp-unauth-poc-control-plane"],
+  "command": null,
   "pids": [],
   "risk": "safe",
   "meta": {}
@@ -167,9 +169,9 @@ Known risk values:
 
 ```json
 {
-  "container_id": "38b3fca258fe",
-  "name": "k8s-mcp-unauth-poc-control-plane",
-  "image": "kindest/node:v1.35.0",
+  "container_id": "<redacted>",
+  "name": "<redacted>",
+  "image": "<redacted>",
   "status": "Up 2 days"
 }
 ```

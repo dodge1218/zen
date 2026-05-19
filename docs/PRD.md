@@ -2,7 +2,7 @@
 
 ## One-Line Product
 
-Zen, package name `zen`, is a calm CPU/RAM audit and resource control plane
+Zen is a calm CPU/RAM audit and resource control plane
 that gives AI-agent workloads leases, TTLs, resource budgets, cleanup policy,
 and observability.
 

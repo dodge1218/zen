@@ -9,13 +9,14 @@ import time
 import unittest
 from pathlib import Path
 
-from ramlm.actions import execute_action
-from ramlm.audit import recommendations, summarize_processes
-from ramlm.audit import CleanAudit
-from ramlm.leases import create_lease, load_leases
-from ramlm.models import Action, DockerContainer, MemoryInfo, ProcessInfo
-from ramlm.policy import plan_actions
-from ramlm.config import Policy
+from zen.actions import execute_action
+from zen.audit import recommendations, summarize_processes
+from zen.audit import CleanAudit
+from zen.leases import create_lease, load_leases
+from zen.models import Action, DockerContainer, MemoryInfo, ProcessInfo
+from zen.policy import plan_actions
+from zen.config import Policy
+from zen.util import process_identity
 
 
 class SafetyTests(unittest.TestCase):
@@ -54,18 +55,7 @@ class SafetyTests(unittest.TestCase):
             allow_kill=False,
         )
         processes = {
-            proc.pid: ProcessInfo(
-                pid=proc.pid,
-                ppid=os.getpid(),
-                pgid=os.getpgid(proc.pid),
-                sid=os.getsid(proc.pid),
-                name="sleep",
-                state="S",
-                rss_kb=0,
-                swap_kb=0,
-                cpu_pct=0,
-                cmdline="sleep 30",
-            )
+            proc.pid: _process_info(proc, "sleep 30")
         }
 
         actions = plan_actions(processes, [], Policy())
@@ -88,18 +78,7 @@ class SafetyTests(unittest.TestCase):
             allow_kill=True,
         )
         processes = {
-            proc.pid: ProcessInfo(
-                pid=proc.pid,
-                ppid=os.getpid(),
-                pgid=os.getpgid(proc.pid),
-                sid=os.getsid(proc.pid),
-                name="sleep",
-                state="S",
-                rss_kb=0,
-                swap_kb=0,
-                cpu_pct=0,
-                cmdline="sleep 30",
-            )
+            proc.pid: _process_info(proc, "sleep 30")
         }
 
         actions = plan_actions(processes, [], Policy())
@@ -109,6 +88,48 @@ class SafetyTests(unittest.TestCase):
         result = execute_action(actions[0])
         self.assertIn("stopped", result)
         _wait_exited(proc)
+
+    def test_owned_kill_with_forged_identity_is_blocked(self) -> None:
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+        self.addCleanup(_terminate, proc)
+
+        identity = process_identity(proc.pid)
+        identity["start_time_ticks"] = -1
+        action = Action(
+            kind="kill-tree",
+            target=f"pid:{proc.pid}",
+            reason="test",
+            pids=[proc.pid],
+            meta={"owned_by_zen": True, "pgid": os.getpgid(proc.pid), "identity": identity},
+        )
+
+        result = execute_action(action)
+
+        self.assertIn("blocked stale process identity", result)
+        self.assertIsNone(proc.poll())
+
+    def test_expired_lease_with_stale_identity_is_review_only(self) -> None:
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+        self.addCleanup(_terminate, proc)
+        lease = create_lease(
+            "owned-test",
+            ["sleep", "30"],
+            proc.pid,
+            os.getpgid(proc.pid),
+            ttl_seconds=0,
+            cleanup=None,
+            allow_kill=True,
+        )
+        lease.identity["start_time_ticks"] = -1
+        from zen.leases import save_leases
+
+        save_leases([lease])
+
+        actions = plan_actions({proc.pid: _process_info(proc, "sleep 30")}, [], Policy())
+
+        self.assertEqual(actions[0].kind, "review")
+        self.assertEqual(actions[0].risk, "blocked")
+        self.assertIn("stale or unverifiable", actions[0].reason)
 
     def test_lease_budget_metadata_is_persisted(self) -> None:
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
@@ -310,6 +331,24 @@ def _wait_exited(proc: subprocess.Popen) -> None:
     except ProcessLookupError:
         pass
     proc.wait(timeout=5)
+
+
+def _process_info(proc: subprocess.Popen, cmdline: str) -> ProcessInfo:
+    identity = process_identity(proc.pid)
+    return ProcessInfo(
+        pid=proc.pid,
+        ppid=os.getpid(),
+        pgid=os.getpgid(proc.pid),
+        sid=os.getsid(proc.pid),
+        uid=identity.get("uid"),
+        start_time_ticks=identity.get("start_time_ticks"),
+        name="sleep",
+        state="S",
+        rss_kb=0,
+        swap_kb=0,
+        cpu_pct=0,
+        cmdline=cmdline,
+    )
 
 
 if __name__ == "__main__":
