@@ -1,0 +1,20 @@
+[project]
+name = "zen-agent"
+version = "0.1.0"
+description = "Calm CPU/RAM audit and cleanup for AI-agent workflows."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+zen = "ramlm.cli:main"
+ram = "ramlm.cli:main"
+ramlm = "ramlm.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ramlm"]
