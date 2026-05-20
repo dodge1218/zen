@@ -175,6 +175,15 @@ zen events
 zen events --json --limit 50
 ```
 
+Run the reaper through systemd user units:
+
+```bash
+cp packaging/systemd/zen-reap.service ~/.config/systemd/user/
+systemctl --user enable --now zen-reap.service
+```
+
+Details: [docs/SYSTEMD.md](docs/SYSTEMD.md)
+
 Budget metadata can be recorded now:
 
 ```bash

@@ -70,6 +70,9 @@ It executes only expired lease actions that already satisfy the process
 ownership checks above. It does not execute heuristic process actions and does
 not execute Docker actions.
 
+Sample user systemd units are available in `packaging/systemd/` for continuous
+or timer-based reaping.
+
 ## Adopt Contract
 
 This is observe-only by default:

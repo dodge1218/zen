@@ -1,0 +1,12 @@
+[Unit]
+Description=Zen expired lease reaper
+Documentation=https://github.com/dodge1218/zen
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env zen reap --interval 5
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

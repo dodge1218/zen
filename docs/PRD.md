@@ -270,6 +270,7 @@ The config must allow users to extend or override:
 - wall-clock TTL enforcement
 - Kubernetes/job backend
 - Docker/container backend
+- packaged systemd user units
 
 ### Accounting
 

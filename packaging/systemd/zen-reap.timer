@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Zen expired lease reaper periodically
+Documentation=https://github.com/dodge1218/zen
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=zen-reap-once.service
+
+[Install]
+WantedBy=timers.target
