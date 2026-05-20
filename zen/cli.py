@@ -11,11 +11,12 @@ import time
 from .actions import execute_action
 from .audit import CleanAudit, recommendations, summarize_processes
 from .config import default_policy, policy_path, write_default_policy
+from .docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command
 from .leases import create_lease, load_leases, prune_dead_leases
 from .policy import plan_actions, pressure_level
 from .runner import build_run_spec, popen_run_spec
 from .scanner import load_average, read_memory, scan_docker, scan_processes
-from .util import fmt_kb, parse_ttl
+from .util import fmt_kb, parse_ttl, run_cmd
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -32,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("swap", help="Show swap users.")
     sub.add_parser("docker", help="Show containers and Zen classification.")
+    docker_run_p = sub.add_parser("docker-run", help="Run a Docker container with Zen ownership and TTL labels.")
+    docker_run_p.add_argument("--ttl", required=True)
+    docker_run_p.add_argument("--name")
+    docker_run_p.add_argument("image")
+    docker_run_p.add_argument("command", nargs=argparse.REMAINDER)
     watch_p = sub.add_parser("watch", help="Continuously print pressure and cleanup plan.")
     watch_p.add_argument("--interval", type=float, default=5.0)
     watch_p.add_argument("--tier", choices=["safe", "normal", "aggressive"], default="normal")
@@ -45,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     clean_p.add_argument("--tier", choices=["safe", "normal", "aggressive"], default="normal")
     clean_p.add_argument("--execute", action="store_true")
     clean_p.add_argument("--force", action="store_true", help="Escalate process cleanup to SIGKILL after SIGTERM.")
-    clean_p.add_argument("--allow-docker", action="store_true", help="Allow stopping matching Docker containers during --execute.")
+    clean_p.add_argument("--allow-docker", action="store_true", help="Allow stopping expired Zen-owned Docker containers during --execute.")
     clean_p.add_argument("--json", action="store_true", help="Print audit as JSON. Refuses to combine with --execute.")
     clean_p.add_argument("--verbose", action="store_true", help="Include command lines, cwd, and container names in JSON output.")
 
@@ -89,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_swap(policy)
     if args.cmd == "docker":
         return cmd_docker(policy)
+    if args.cmd == "docker-run":
+        return cmd_docker_run(args)
     if args.cmd == "watch":
         return cmd_watch(policy, interval=args.interval, tier=args.tier)
     if args.cmd == "reap":
@@ -157,11 +165,34 @@ def cmd_docker(policy) -> int:
         tags = []
         if c.name in policy.keep_container_names:
             tags.append("protect")
-        if c.labels.get("io.github.dodge1218.zen.managed") == "true":
+        if c.labels.get(MANAGED_LABEL) == "true":
             tags.append("owned")
         if c.name in policy.poc_container_names or any(c.image.startswith(prefix) for prefix in policy.poc_container_images):
             tags.append("review")
         print(f"{c.name:36} {c.status:20} {c.image} {' '.join(tags)}")
+    return 0
+
+
+def cmd_docker_run(args) -> int:
+    command = args.command
+    if command and command[0] == "--":
+        command = command[1:]
+    ttl = parse_ttl(args.ttl)
+    if ttl is None:
+        print("zen docker-run requires --ttl", file=sys.stderr)
+        return 2
+    try:
+        run_args, labels = build_docker_run_command(args.image, command, ttl, name=args.name)
+    except ValueError as exc:
+        print(f"invalid docker-run: {exc}", file=sys.stderr)
+        return 2
+    result = run_cmd(run_args, timeout=60)
+    if result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+        return result.returncode
+    container_id = result.stdout.strip()
+    print(f"container {container_id}")
+    print(f"ttl={args.ttl} expires_at={labels[EXPIRES_LABEL]}")
     return 0
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 from .config import Policy
+from .docker import MANAGED_LABEL, docker_container_expired, docker_container_has_expiry
 from .leases import prune_dead_leases
 from .models import Action, DockerContainer, MemoryInfo, ProcessInfo
 
@@ -133,16 +134,30 @@ def _docker_actions(containers: list[DockerContainer], policy: Policy, tier: str
     for container in containers:
         if container.name in policy.keep_container_names:
             continue
-        if _is_zen_owned_container(container):
+        if _is_zen_owned_container(container) and docker_container_expired(container.labels, now=time.time()):
             actions.append(
                 Action(
                     kind="docker-stop",
                     target=container.name,
-                    reason=f"Zen-owned container: {container.image}",
+                    reason=f"expired Zen-owned container: {container.image}",
                     command=["docker", "stop", container.container_id],
                     risk="safe",
                     meta={
                         "owned_by_zen": True,
+                        "container_id": container.container_id,
+                        "labels": container.labels,
+                    },
+                )
+            )
+            continue
+        if _is_zen_owned_container(container) and not docker_container_has_expiry(container.labels):
+            actions.append(
+                Action(
+                    kind="review",
+                    target=container.name,
+                    reason=f"Zen-owned container without valid expiry label: {container.image}",
+                    risk="blocked",
+                    meta={
                         "container_id": container.container_id,
                         "labels": container.labels,
                     },
@@ -168,7 +183,7 @@ def _docker_actions(containers: list[DockerContainer], policy: Policy, tier: str
 
 
 def _is_zen_owned_container(container: DockerContainer) -> bool:
-    return container.labels.get("io.github.dodge1218.zen.managed") == "true"
+    return container.labels.get(MANAGED_LABEL) == "true"
 
 
 def _dedupe_actions(actions: list[Action]) -> list[Action]:

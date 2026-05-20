@@ -43,6 +43,7 @@ control plane for agent workload hygiene.
 - protected browsers, terminals, desktop processes, and active LLM sessions
 - leases with TTLs for agent/build/test work
 - foreground TTL reaper for expired owned leases
+- Docker container launcher with Zen ownership and TTL labels
 - locked, atomic lease-state writes for concurrent agent runs
 - observe-only adoption for already-running processes
 - CPU/RAM/process-count budgets via systemd-run when available
@@ -105,6 +106,7 @@ zen clean --execute --allow-docker # additionally allow Zen-owned Docker stops
 zen ps --top 25                    # hot processes
 zen swap                           # processes using swap
 zen docker                         # container classification
+zen docker-run --ttl 30m IMAGE     # run labeled Docker container
 zen watch                          # live pressure loop
 zen reap                           # continuously enforce expired owned leases
 zen reap --once                    # one TTL enforcement pass
@@ -154,6 +156,15 @@ zen reap --interval 5
 
 `zen reap` only executes expired lease actions. Heuristic process matches and
 Docker/container actions remain out of scope.
+
+Launch Docker work with Zen labels:
+
+```bash
+zen docker-run --ttl 30m --name test-db postgres:16
+```
+
+Only expired containers launched with Zen ownership and expiry labels are
+eligible for `zen clean --execute --allow-docker`.
 
 Budget metadata can be recorded now:
 
@@ -209,7 +220,7 @@ Current safety coverage verifies:
 - adopted leases without `--allow-kill` survive cleanup
 - Zen-owned expired leases can be stopped
 - `zen reap` stops expired owned leases but leaves observe-only leases alive
-- Docker stops require Zen ownership labels and `--allow-docker`
+- Docker stops require Zen ownership plus expiry labels and `--allow-docker`
 - heuristic ephemeral matches are review-only
 - `zen clean --json --execute` is rejected
 
@@ -220,7 +231,7 @@ Current safety coverage verifies:
 - historical pressure logs
 - desktop notifications
 - fleet policy/reporting mode
-- Docker/container launch helpers that apply Zen ownership labels
+- Docker/container launch helpers with richer resource limits
 
 ## Non-Goals
 

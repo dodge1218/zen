@@ -142,6 +142,7 @@ Required commands:
 - `zen ps`
 - `zen swap`
 - `zen docker`
+- `zen docker-run --ttl ... IMAGE ...`
 - `zen clean`
 - `zen clean --json`
 - `zen clean --execute`
@@ -219,7 +220,8 @@ Zen can report unknown work, but it can only kill owned work.
 
 `zen clean --execute` may kill only expired `zen run` leases or adopted leases
 that were explicitly created with `--allow-kill`. Heuristic matches must remain
-review-only. Docker stops require Zen ownership labels plus `--allow-docker`.
+review-only. Docker stops require Zen ownership/expiry labels plus
+`--allow-docker`.
 
 ### Policy Config
 
@@ -254,6 +256,7 @@ The config must allow users to extend or override:
 - continuously enforce expired owned leases via `zen reap`
 - report known disposable containers
 - stop explicitly Zen-owned containers only
+- launch Docker containers with Zen ownership and expiry labels
 - require `--execute` to mutate system state
 
 ## Future Requirements

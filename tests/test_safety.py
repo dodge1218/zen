@@ -14,6 +14,7 @@ from zen.actions import execute_action
 from zen.audit import recommendations, summarize_processes
 from zen.audit import CleanAudit
 from zen.cli import reap_expired_leases
+from zen.docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command, docker_container_expired
 from zen.leases import create_lease, load_leases
 from zen.models import Action, DockerContainer, MemoryInfo, ProcessInfo
 from zen.policy import plan_actions
@@ -275,13 +276,13 @@ class SafetyTests(unittest.TestCase):
         self.assertIn("blocked non-owned docker stop", result)
         self.assertFalse((Path(self.tmp.name) / "docker-ran").exists())
 
-    def test_zen_owned_container_can_plan_docker_stop(self) -> None:
+    def test_expired_zen_owned_container_can_plan_docker_stop(self) -> None:
         container = DockerContainer(
             container_id="abc123",
             name="zen-owned",
             image="busybox:latest",
             status="Up",
-            labels={"io.github.dodge1218.zen.managed": "true"},
+            labels={MANAGED_LABEL: "true", EXPIRES_LABEL: "1"},
         )
 
         actions = plan_actions({}, [container], Policy())
@@ -289,6 +290,33 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(actions[0].kind, "docker-stop")
         self.assertTrue(actions[0].meta["owned_by_zen"])
         self.assertEqual(actions[0].command, ["docker", "stop", "abc123"])
+
+    def test_unexpired_zen_owned_container_is_not_stopped(self) -> None:
+        container = DockerContainer(
+            container_id="abc123",
+            name="zen-owned",
+            image="busybox:latest",
+            status="Up",
+            labels={MANAGED_LABEL: "true", EXPIRES_LABEL: str(time.time() + 3600)},
+        )
+
+        actions = plan_actions({}, [container], Policy())
+
+        self.assertEqual(actions, [])
+
+    def test_zen_owned_container_without_expiry_is_review_only(self) -> None:
+        container = DockerContainer(
+            container_id="abc123",
+            name="zen-owned",
+            image="busybox:latest",
+            status="Up",
+            labels={MANAGED_LABEL: "true"},
+        )
+
+        actions = plan_actions({}, [container], Policy())
+
+        self.assertEqual(actions[0].kind, "review")
+        self.assertEqual(actions[0].risk, "blocked")
 
     def test_disposable_container_heuristic_is_review_only(self) -> None:
         container = DockerContainer(
@@ -302,6 +330,16 @@ class SafetyTests(unittest.TestCase):
 
         self.assertEqual(actions[0].kind, "review")
         self.assertEqual(actions[0].risk, "review")
+
+    def test_docker_run_command_adds_zen_ttl_labels(self) -> None:
+        command, labels = build_docker_run_command("busybox:latest", ["sleep", "30"], ttl_seconds=60, name="zen-test", now=100)
+
+        self.assertEqual(command[:5], ["docker", "run", "-d", "--name", "zen-test"])
+        self.assertIn("--label", command)
+        self.assertEqual(labels[MANAGED_LABEL], "true")
+        self.assertEqual(labels[EXPIRES_LABEL], "160")
+        self.assertFalse(docker_container_expired(labels, now=159))
+        self.assertTrue(docker_container_expired(labels, now=160))
 
     def test_ephemeral_heuristic_is_review_only(self) -> None:
         proc = ProcessInfo(

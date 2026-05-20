@@ -132,8 +132,14 @@ The required label is:
 io.github.dodge1218.zen.managed=true
 ```
 
-Name/image matches from policy are review-only. They do not become executable
-Docker stops.
+Zen-owned containers also need a valid expired label:
+
+```text
+io.github.dodge1218.zen.expires_at=<unix timestamp>
+```
+
+`zen docker-run --ttl ...` applies these labels automatically. Name/image
+matches from policy are review-only. They do not become executable Docker stops.
 
 ## Protected Workflows
 
@@ -156,6 +162,7 @@ Validated by automated tests in `tests/test_safety.py`:
 - The TTL reaper stopped an expired owned lease while leaving an expired
   observe-only lease alive.
 - Non-owned Docker stops were blocked, even when `--allow-docker` was present.
+- Unexpired Zen-owned containers were not stopped.
 - Disposable-looking containers produced review actions, not executable stops.
 - A synthetic non-owned kill action was blocked before signal delivery.
 - A forged/stale process identity was blocked before signal delivery.
