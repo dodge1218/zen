@@ -15,7 +15,7 @@ from zen.audit import recommendations, summarize_processes
 from zen.audit import CleanAudit
 from zen.cli import reap_expired_leases
 from zen.docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command, docker_container_expired
-from zen.leases import create_lease, load_leases
+from zen.leases import create_lease, lease_path, load_leases
 from zen.models import Action, DockerContainer, MemoryInfo, ProcessInfo
 from zen.policy import plan_actions
 from zen.runner import build_run_spec, normalize_memory_max, systemd_properties_for_budget
@@ -206,6 +206,35 @@ class SafetyTests(unittest.TestCase):
             thread.join()
 
         self.assertEqual(len(load_leases()), 12)
+
+    def test_corrupt_lease_file_is_quarantined(self) -> None:
+        path = lease_path()
+        path.write_text("{not valid json")
+
+        leases = load_leases()
+
+        self.assertEqual(leases, [])
+        self.assertFalse(path.exists())
+        corrupt_files = list(Path(self.tmp.name).glob("leases.json.corrupt-*"))
+        self.assertEqual(len(corrupt_files), 1)
+        self.assertEqual(corrupt_files[0].read_text(), "{not valid json")
+
+    def test_create_lease_after_corruption_preserves_new_state(self) -> None:
+        path = lease_path()
+        path.write_text("{not valid json")
+
+        create_lease(
+            "after-corrupt",
+            ["sleep", "30"],
+            os.getpid(),
+            os.getpgid(os.getpid()),
+            ttl_seconds=60,
+            cleanup=None,
+            allow_kill=False,
+        )
+
+        self.assertEqual(len(load_leases()), 1)
+        self.assertEqual(len(list(Path(self.tmp.name).glob("leases.json.corrupt-*"))), 1)
 
     def test_budget_properties_are_normalized_for_systemd(self) -> None:
         props = systemd_properties_for_budget({"mem": "1.5g", "cpu": 1.25, "pids": 12})

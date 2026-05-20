@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import fcntl
 import json
 import os
+import sys
 import tempfile
 import time
 import uuid
@@ -35,7 +36,9 @@ def _read_leases_unlocked() -> list[Lease]:
         data = json.loads(path.read_text())
     except OSError:
         return []
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        corrupt_path = _quarantine_corrupt_lease_file(path)
+        print(f"warning: quarantined corrupt Zen lease store {path} -> {corrupt_path}: {exc}", file=sys.stderr)
         return []
     leases: list[Lease] = []
     for item in data:
@@ -117,6 +120,20 @@ def prune_dead_leases() -> list[Lease]:
                 live.append(lease)
         _write_leases_unlocked(live)
     return live
+
+
+def _quarantine_corrupt_lease_file(path: Path) -> Path:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    candidate = path.with_name(f"{path.name}.corrupt-{stamp}")
+    counter = 0
+    while candidate.exists():
+        counter += 1
+        candidate = path.with_name(f"{path.name}.corrupt-{stamp}-{counter}")
+    try:
+        os.replace(path, candidate)
+    except OSError:
+        return path
+    return candidate
 
 
 @contextmanager

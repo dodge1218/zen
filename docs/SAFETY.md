@@ -107,7 +107,10 @@ The CLI prints whether the budget was `enforced` or `advisory`.
 ## Lease Store Contract
 
 Lease state is written with an exclusive file lock and atomic rename. Concurrent
-Zen invocations should not clobber each other's lease records.
+Zen invocations should not clobber each other's lease records. If the lease
+store cannot be parsed as JSON, Zen moves it aside as
+`leases.json.corrupt-*`, warns on stderr, and starts from an empty lease set.
+That fails closed for cleanup because corrupted lease ownership is not trusted.
 
 ## Docker Contract
 
@@ -161,6 +164,7 @@ Validated by automated tests in `tests/test_safety.py`:
 - A `sleep` process started by `zen run --ttl 1s` was stopped after expiry.
 - The TTL reaper stopped an expired owned lease while leaving an expired
   observe-only lease alive.
+- Corrupt lease state was quarantined instead of trusted.
 - Non-owned Docker stops were blocked, even when `--allow-docker` was present.
 - Unexpired Zen-owned containers were not stopped.
 - Disposable-looking containers produced review actions, not executable stops.

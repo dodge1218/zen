@@ -44,7 +44,7 @@ control plane for agent workload hygiene.
 - leases with TTLs for agent/build/test work
 - foreground TTL reaper for expired owned leases
 - Docker container launcher with Zen ownership and TTL labels
-- locked, atomic lease-state writes for concurrent agent runs
+- locked, atomic lease-state writes with corrupt-file quarantine
 - observe-only adoption for already-running processes
 - CPU/RAM/process-count budgets via systemd-run when available
 - machine-readable JSON output for automation
