@@ -58,6 +58,18 @@ process kills are allowed only when all of these are true:
 
 This means heuristic matches are never enough to kill a process.
 
+## Reaper Contract
+
+`zen reap` is the foreground TTL enforcement loop:
+
+```bash
+zen reap --interval 5
+```
+
+It executes only expired lease actions that already satisfy the process
+ownership checks above. It does not execute heuristic process actions and does
+not execute Docker actions.
+
 ## Adopt Contract
 
 This is observe-only by default:
@@ -141,6 +153,8 @@ Validated by automated tests in `tests/test_safety.py`:
 - An adopted `sleep` process without `--allow-kill` survived
   cleanup execution.
 - A `sleep` process started by `zen run --ttl 1s` was stopped after expiry.
+- The TTL reaper stopped an expired owned lease while leaving an expired
+  observe-only lease alive.
 - Non-owned Docker stops were blocked, even when `--allow-docker` was present.
 - Disposable-looking containers produced review actions, not executable stops.
 - A synthetic non-owned kill action was blocked before signal delivery.

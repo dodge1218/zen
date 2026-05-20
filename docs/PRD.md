@@ -145,6 +145,7 @@ Required commands:
 - `zen clean`
 - `zen clean --json`
 - `zen clean --execute`
+- `zen reap`
 - `zen run --ttl ... -- command`
 - `zen adopt PID --ttl ...`
 - `zen config --init`
@@ -250,6 +251,7 @@ The config must allow users to extend or override:
 - print planned actions and reasons
 - avoid protected processes
 - stop expired leased process groups
+- continuously enforce expired owned leases via `zen reap`
 - report known disposable containers
 - stop explicitly Zen-owned containers only
 - require `--execute` to mutate system state

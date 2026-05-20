@@ -36,6 +36,11 @@ def main(argv: list[str] | None = None) -> int:
     watch_p.add_argument("--interval", type=float, default=5.0)
     watch_p.add_argument("--tier", choices=["safe", "normal", "aggressive"], default="normal")
 
+    reap_p = sub.add_parser("reap", help="Continuously enforce expired Zen leases.")
+    reap_p.add_argument("--interval", type=float, default=5.0)
+    reap_p.add_argument("--once", action="store_true", help="Run one reap pass and exit.")
+    reap_p.add_argument("--force", action="store_true", help="Escalate expired lease cleanup to SIGKILL after SIGTERM.")
+
     clean_p = sub.add_parser("clean", help="Audit CPU/RAM and plan cleanup. Dry-run unless --execute is passed.")
     clean_p.add_argument("--tier", choices=["safe", "normal", "aggressive"], default="normal")
     clean_p.add_argument("--execute", action="store_true")
@@ -86,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_docker(policy)
     if args.cmd == "watch":
         return cmd_watch(policy, interval=args.interval, tier=args.tier)
+    if args.cmd == "reap":
+        return cmd_reap(policy, interval=args.interval, once=args.once, force=args.force)
     if args.cmd == "clean":
         return cmd_clean(policy, tier=args.tier, execute=args.execute, force=args.force, allow_docker=args.allow_docker, json_output=args.json, verbose=args.verbose)
     if args.cmd == "run":
@@ -179,6 +186,39 @@ def cmd_watch(policy, interval: float, tier: str) -> int:
             time.sleep(max(1.0, interval))
     except KeyboardInterrupt:
         return 130
+
+
+def cmd_reap(policy, interval: float, once: bool, force: bool) -> int:
+    try:
+        while True:
+            results = reap_expired_leases(policy, force=force)
+            if results:
+                for result in results:
+                    print(f"{time.strftime('%H:%M:%S')} {result}")
+            elif once:
+                print("No expired executable leases.")
+            sys.stdout.flush()
+            if once:
+                return 0
+            time.sleep(max(1.0, interval))
+    except KeyboardInterrupt:
+        return 130
+
+
+def reap_expired_leases(policy, force: bool = False) -> list[str]:
+    processes = scan_processes(policy)
+    actions = [
+        action
+        for action in plan_actions(processes, [], policy, tier="safe")
+        if action.target.startswith("lease:")
+    ]
+    results: list[str] = []
+    for action in actions:
+        if action.kind == "kill-tree":
+            results.append(execute_action(action, force=force, allow_docker=False))
+        elif action.kind == "review":
+            results.append(f"review only: {action.target} - {action.reason}")
+    return results
 
 
 def cmd_clean(policy, tier: str, execute: bool, force: bool, allow_docker: bool, json_output: bool, verbose: bool) -> int:

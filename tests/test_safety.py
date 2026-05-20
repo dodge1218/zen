@@ -13,6 +13,7 @@ from pathlib import Path
 from zen.actions import execute_action
 from zen.audit import recommendations, summarize_processes
 from zen.audit import CleanAudit
+from zen.cli import reap_expired_leases
 from zen.leases import create_lease, load_leases
 from zen.models import Action, DockerContainer, MemoryInfo, ProcessInfo
 from zen.policy import plan_actions
@@ -90,6 +91,37 @@ class SafetyTests(unittest.TestCase):
         result = execute_action(actions[0])
         self.assertIn("stopped", result)
         _wait_exited(proc)
+
+    def test_reaper_stops_only_expired_owned_leases(self) -> None:
+        owned = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+        observe_only = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+        self.addCleanup(_terminate, owned)
+        self.addCleanup(_terminate, observe_only)
+        create_lease(
+            "owned-test",
+            ["sleep", "30"],
+            owned.pid,
+            os.getpgid(owned.pid),
+            ttl_seconds=0,
+            cleanup=None,
+            allow_kill=True,
+        )
+        create_lease(
+            "observe-test",
+            ["sleep", "30"],
+            observe_only.pid,
+            os.getpgid(observe_only.pid),
+            ttl_seconds=0,
+            cleanup=None,
+            allow_kill=False,
+        )
+
+        results = reap_expired_leases(Policy())
+
+        self.assertTrue(any("stopped lease:" in result for result in results))
+        self.assertTrue(any("review only: lease:" in result for result in results))
+        _wait_exited(owned)
+        self.assertIsNone(observe_only.poll())
 
     def test_owned_kill_with_forged_identity_is_blocked(self) -> None:
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)

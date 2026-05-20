@@ -42,6 +42,7 @@ control plane for agent workload hygiene.
 - dry-run cleanup by default
 - protected browsers, terminals, desktop processes, and active LLM sessions
 - leases with TTLs for agent/build/test work
+- foreground TTL reaper for expired owned leases
 - locked, atomic lease-state writes for concurrent agent runs
 - observe-only adoption for already-running processes
 - CPU/RAM/process-count budgets via systemd-run when available
@@ -105,6 +106,8 @@ zen ps --top 25                    # hot processes
 zen swap                           # processes using swap
 zen docker                         # container classification
 zen watch                          # live pressure loop
+zen reap                           # continuously enforce expired owned leases
+zen reap --once                    # one TTL enforcement pass
 zen leases                         # active Zen leases
 zen run --ttl 30m -- command       # run command under a killable Zen lease
 zen adopt PID --ttl 30m            # observe-only lease for existing process
@@ -138,10 +141,19 @@ zen run --class test --ttl 30m -- pytest
 zen run --class agent-scan --ttl 45m -- codex exec "scan this repository"
 ```
 
-When a Zen-owned lease expires, `zen clean --execute` may stop its process
-group. Before signaling, Zen re-checks the process UID, process group, session,
-and Linux start-time tick recorded in the lease. Stale or hand-edited lease
-state becomes review-only.
+When a Zen-owned lease expires, `zen clean --execute` or `zen reap` may stop
+its process group. Before signaling, Zen re-checks the process UID, process
+group, session, and Linux start-time tick recorded in the lease. Stale or
+hand-edited lease state becomes review-only.
+
+Run the foreground reaper when you want TTLs enforced continuously:
+
+```bash
+zen reap --interval 5
+```
+
+`zen reap` only executes expired lease actions. Heuristic process matches and
+Docker/container actions remain out of scope.
 
 Budget metadata can be recorded now:
 
@@ -196,6 +208,7 @@ Current safety coverage verifies:
 - forged/stale process identities are blocked before signal delivery
 - adopted leases without `--allow-kill` survive cleanup
 - Zen-owned expired leases can be stopped
+- `zen reap` stops expired owned leases but leaves observe-only leases alive
 - Docker stops require Zen ownership labels and `--allow-docker`
 - heuristic ephemeral matches are review-only
 - `zen clean --json --execute` is rejected
