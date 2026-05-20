@@ -151,6 +151,7 @@ Required commands:
 - `zen adopt PID --ttl ...`
 - `zen config --init`
 - `zen leases`
+- `zen events`
 - `zen watch`
 
 The human-facing command should be `zen`, for example:
@@ -278,6 +279,7 @@ The config must allow users to extend or override:
 - per-repo usage
 - prevented-spend estimates
 - historical pressure timelines
+- local lifecycle event log
 
 ### Integrations
 

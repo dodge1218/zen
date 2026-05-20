@@ -45,6 +45,7 @@ control plane for agent workload hygiene.
 - foreground TTL reaper for expired owned leases
 - Docker container launcher with Zen ownership and TTL labels
 - locked, atomic lease-state writes with corrupt-file quarantine
+- local JSONL event log for lifecycle and cleanup actions
 - observe-only adoption for already-running processes
 - CPU/RAM/process-count budgets via systemd-run when available
 - machine-readable JSON output for automation
@@ -111,6 +112,7 @@ zen watch                          # live pressure loop
 zen reap                           # continuously enforce expired owned leases
 zen reap --once                    # one TTL enforcement pass
 zen leases                         # active Zen leases
+zen events                         # recent lifecycle/cleanup events
 zen run --ttl 30m -- command       # run command under a killable Zen lease
 zen adopt PID --ttl 30m            # observe-only lease for existing process
 zen config --init                  # create editable policy config
@@ -165,6 +167,13 @@ zen docker-run --ttl 30m --name test-db postgres:16
 
 Only expired containers launched with Zen ownership and expiry labels are
 eligible for `zen clean --execute --allow-docker`.
+
+Inspect recent lifecycle and cleanup events:
+
+```bash
+zen events
+zen events --json --limit 50
+```
 
 Budget metadata can be recorded now:
 
@@ -221,6 +230,7 @@ Current safety coverage verifies:
 - Zen-owned expired leases can be stopped
 - `zen reap` stops expired owned leases but leaves observe-only leases alive
 - Docker stops require Zen ownership plus expiry labels and `--allow-docker`
+- lifecycle and cleanup events are written to `events.jsonl`
 - heuristic ephemeral matches are review-only
 - `zen clean --json --execute` is rejected
 

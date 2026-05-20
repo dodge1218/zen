@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 from .config import state_dir
+from .events import log_event
 from .models import Lease
 from .util import process_identity
 
@@ -38,6 +39,7 @@ def _read_leases_unlocked() -> list[Lease]:
         return []
     except json.JSONDecodeError as exc:
         corrupt_path = _quarantine_corrupt_lease_file(path)
+        log_event("lease_store_corrupt", path=str(path), quarantined_as=str(corrupt_path))
         print(f"warning: quarantined corrupt Zen lease store {path} -> {corrupt_path}: {exc}", file=sys.stderr)
         return []
     leases: list[Lease] = []
@@ -103,6 +105,17 @@ def create_lease(
         leases = _read_leases_unlocked()
         leases.append(lease)
         _write_leases_unlocked(leases)
+    log_event(
+        "lease_created",
+        lease_id=lease.id,
+        klass=lease.klass,
+        pid=lease.pid,
+        pgid=lease.pgid,
+        ttl_seconds=lease.ttl_seconds,
+        allow_kill=lease.allow_kill,
+        budget=lease.budget,
+        runtime=lease.runtime,
+    )
     return lease
 
 
@@ -115,6 +128,7 @@ def prune_dead_leases() -> list[Lease]:
                 os.kill(lease.pid, 0)
                 live.append(lease)
             except ProcessLookupError:
+                log_event("lease_pruned_dead", lease_id=lease.id, pid=lease.pid, klass=lease.klass)
                 continue
             except PermissionError:
                 live.append(lease)

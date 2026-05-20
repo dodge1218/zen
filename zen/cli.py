@@ -12,6 +12,7 @@ from .actions import execute_action
 from .audit import CleanAudit, recommendations, summarize_processes
 from .config import default_policy, policy_path, write_default_policy
 from .docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command
+from .events import log_event, read_events
 from .leases import create_lease, load_leases, prune_dead_leases
 from .policy import plan_actions, pressure_level
 from .runner import build_run_spec, popen_run_spec
@@ -33,6 +34,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("swap", help="Show swap users.")
     sub.add_parser("docker", help="Show containers and Zen classification.")
+    events_p = sub.add_parser("events", help="Show recent Zen events.")
+    events_p.add_argument("--limit", type=int, default=20)
+    events_p.add_argument("--json", action="store_true")
     docker_run_p = sub.add_parser("docker-run", help="Run a Docker container with Zen ownership and TTL labels.")
     docker_run_p.add_argument("--ttl", required=True)
     docker_run_p.add_argument("--name")
@@ -95,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_swap(policy)
     if args.cmd == "docker":
         return cmd_docker(policy)
+    if args.cmd == "events":
+        return cmd_events(limit=args.limit, json_output=args.json)
     if args.cmd == "docker-run":
         return cmd_docker_run(args)
     if args.cmd == "watch":
@@ -191,8 +197,25 @@ def cmd_docker_run(args) -> int:
         print(result.stderr.strip(), file=sys.stderr)
         return result.returncode
     container_id = result.stdout.strip()
+    log_event("docker_container_started", container_id=container_id, image=args.image, ttl=args.ttl, expires_at=labels[EXPIRES_LABEL])
     print(f"container {container_id}")
     print(f"ttl={args.ttl} expires_at={labels[EXPIRES_LABEL]}")
+    return 0
+
+
+def cmd_events(limit: int, json_output: bool) -> int:
+    events = read_events(limit=max(0, limit))
+    if json_output:
+        print(json.dumps(events, indent=2, sort_keys=True))
+        return 0
+    if not events:
+        print("No events.")
+        return 0
+    for event in events:
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(event.get("ts", 0))))
+        kind = event.get("kind", "unknown")
+        details = " ".join(f"{key}={value}" for key, value in event.items() if key not in {"ts", "kind"})
+        print(f"{ts} {kind} {details}".rstrip())
     return 0
 
 

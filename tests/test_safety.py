@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager, redirect_stdout
+import io
 import os
 import signal
 import subprocess
@@ -13,8 +15,9 @@ from pathlib import Path
 from zen.actions import execute_action
 from zen.audit import recommendations, summarize_processes
 from zen.audit import CleanAudit
-from zen.cli import reap_expired_leases
+from zen.cli import cmd_events, reap_expired_leases
 from zen.docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command, docker_container_expired
+from zen.events import event_path, log_event, read_events
 from zen.leases import create_lease, lease_path, load_leases
 from zen.models import Action, DockerContainer, MemoryInfo, ProcessInfo
 from zen.policy import plan_actions
@@ -187,6 +190,39 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(lease.budget["cpu"], 1.5)
         self.assertEqual(lease.budget["pids"], 12)
 
+    def test_lease_creation_writes_event(self) -> None:
+        create_lease(
+            "event-test",
+            ["sleep", "30"],
+            os.getpid(),
+            os.getpgid(os.getpid()),
+            ttl_seconds=60,
+            cleanup=None,
+            allow_kill=False,
+        )
+
+        events = read_events()
+
+        self.assertEqual(events[-1]["kind"], "lease_created")
+        self.assertEqual(events[-1]["klass"], "event-test")
+
+    def test_events_reader_skips_bad_lines_and_limits(self) -> None:
+        path = event_path()
+        path.write_text('{"kind":"first","ts":1}\nnot-json\n{"kind":"second","ts":2}\n')
+
+        events = read_events(limit=2)
+
+        self.assertEqual([event["kind"] for event in events], ["second"])
+
+    def test_cmd_events_json_output(self) -> None:
+        log_event("unit_test", value=1)
+
+        with _capture_stdout() as captured:
+            result = cmd_events(limit=10, json_output=True)
+
+        self.assertEqual(result, 0)
+        self.assertIn('"kind": "unit_test"', captured.getvalue())
+
     def test_concurrent_lease_creates_do_not_clobber_state(self) -> None:
         def create(index: int) -> None:
             create_lease(
@@ -218,6 +254,7 @@ class SafetyTests(unittest.TestCase):
         corrupt_files = list(Path(self.tmp.name).glob("leases.json.corrupt-*"))
         self.assertEqual(len(corrupt_files), 1)
         self.assertEqual(corrupt_files[0].read_text(), "{not valid json")
+        self.assertEqual(read_events()[-1]["kind"], "lease_store_corrupt")
 
     def test_create_lease_after_corruption_preserves_new_state(self) -> None:
         path = lease_path()
@@ -554,6 +591,13 @@ def _process_info(proc: subprocess.Popen, cmdline: str) -> ProcessInfo:
         cpu_pct=0,
         cmdline=cmdline,
     )
+
+
+@contextmanager
+def _capture_stdout():
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        yield buffer
 
 
 if __name__ == "__main__":

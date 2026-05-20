@@ -112,6 +112,18 @@ store cannot be parsed as JSON, Zen moves it aside as
 `leases.json.corrupt-*`, warns on stderr, and starts from an empty lease set.
 That fails closed for cleanup because corrupted lease ownership is not trusted.
 
+## Event Log Contract
+
+Zen writes local JSONL lifecycle events to:
+
+```text
+~/.local/state/zen/events.jsonl
+```
+
+The log records lease creation, dead-lease pruning, corrupt lease quarantine,
+blocked actions, and executed actions. It is local operational evidence, not a
+remote telemetry stream.
+
 ## Docker Contract
 
 Docker cleanup is blocked by default, even under `--execute`.
@@ -165,6 +177,7 @@ Validated by automated tests in `tests/test_safety.py`:
 - The TTL reaper stopped an expired owned lease while leaving an expired
   observe-only lease alive.
 - Corrupt lease state was quarantined instead of trusted.
+- Lease creation and corrupt-state handling wrote local events.
 - Non-owned Docker stops were blocked, even when `--allow-docker` was present.
 - Unexpired Zen-owned containers were not stopped.
 - Disposable-looking containers produced review actions, not executable stops.
