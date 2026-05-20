@@ -133,19 +133,42 @@ def _docker_actions(containers: list[DockerContainer], policy: Policy, tier: str
     for container in containers:
         if container.name in policy.keep_container_names:
             continue
+        if _is_zen_owned_container(container):
+            actions.append(
+                Action(
+                    kind="docker-stop",
+                    target=container.name,
+                    reason=f"Zen-owned container: {container.image}",
+                    command=["docker", "stop", container.container_id],
+                    risk="safe",
+                    meta={
+                        "owned_by_zen": True,
+                        "container_id": container.container_id,
+                        "labels": container.labels,
+                    },
+                )
+            )
+            continue
         name_match = container.name in policy.poc_container_names
         image_match = any(container.image.startswith(prefix) for prefix in policy.poc_container_images)
         if name_match or (tier == "aggressive" and image_match):
             actions.append(
                 Action(
-                    kind="docker-stop",
+                    kind="review",
                     target=container.name,
-                    reason=f"PoC/ephemeral container: {container.image}",
-                    command=["docker", "stop", container.name],
-                    risk="safe" if name_match else "normal",
+                    reason=f"possible disposable container: {container.image}",
+                    risk="review",
+                    meta={
+                        "container_id": container.container_id,
+                        "image": container.image,
+                    },
                 )
             )
     return actions
+
+
+def _is_zen_owned_container(container: DockerContainer) -> bool:
+    return container.labels.get("io.github.dodge1218.zen.managed") == "true"
 
 
 def _dedupe_actions(actions: list[Action]) -> list[Action]:

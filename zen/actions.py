@@ -34,7 +34,9 @@ def execute_action(action: Action, force: bool = False, allow_docker: bool = Fal
                 kill_process_tree(pid, signal.SIGKILL)
         return f"stopped {action.target}"
     if action.kind == "docker-stop" and action.command:
-        if not allow_docker and not action.meta.get("owned_by_zen"):
+        if not action.meta.get("owned_by_zen"):
+            return f"blocked non-owned docker stop: {action.target}"
+        if not allow_docker:
             return f"blocked docker stop without --allow-docker: {action.target}"
         result = run_cmd(action.command, timeout=30)
         if result.returncode != 0:

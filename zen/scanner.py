@@ -120,7 +120,7 @@ def _protect_current_invocation(processes: dict[int, ProcessInfo]) -> None:
 
 def scan_docker(policy: Policy) -> list[DockerContainer]:
     result = run_cmd(
-        ["docker", "ps", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}"],
+        ["docker", "ps", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Labels}}"],
         timeout=5,
     )
     if result.returncode != 0:
@@ -130,8 +130,22 @@ def scan_docker(policy: Policy) -> list[DockerContainer]:
         parts = line.split("\t")
         if len(parts) < 4:
             continue
-        containers.append(DockerContainer(parts[0], parts[1], parts[2], parts[3]))
+        labels = _parse_docker_labels(parts[4] if len(parts) > 4 else "")
+        containers.append(DockerContainer(parts[0], parts[1], parts[2], parts[3], labels))
     return containers
+
+
+def _parse_docker_labels(raw: str) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for item in raw.split(","):
+        if not item:
+            continue
+        if "=" not in item:
+            labels[item] = ""
+            continue
+        key, value = item.split("=", 1)
+        labels[key] = value
+    return labels
 
 
 def _status_fields(path: Path) -> dict[str, int]:

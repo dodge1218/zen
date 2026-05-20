@@ -155,8 +155,8 @@ Known action kinds:
 
 - `review`: report-only; never executes.
 - `kill-tree`: executable only for Zen-owned expired leases.
-- `docker-stop`: executable only when `--allow-docker` is present, unless future
-  owned-container metadata is added.
+- `docker-stop`: executable only for Zen-owned containers when `--allow-docker`
+  is present.
 
 Known risk values:
 
@@ -176,5 +176,5 @@ Known risk values:
 }
 ```
 
-Container presence in JSON does not imply Zen will stop it. Docker cleanup still
-requires `zen clean --execute --allow-docker`.
+Container presence in JSON does not imply Zen will stop it. Docker cleanup
+requires Zen ownership labels and `zen clean --execute --allow-docker`.

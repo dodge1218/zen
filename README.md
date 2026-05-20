@@ -100,7 +100,7 @@ zen doctor                         # top offenders + cleanup plan
 zen clean                          # CPU/RAM audit + dry-run cleanup
 zen clean --json                   # machine-readable audit, never executes
 zen clean --execute                # execute only Zen-owned expired leases
-zen clean --execute --allow-docker # additionally allow matching Docker stops
+zen clean --execute --allow-docker # additionally allow Zen-owned Docker stops
 zen ps --top 25                    # hot processes
 zen swap                           # processes using swap
 zen docker                         # container classification
@@ -122,7 +122,7 @@ Default safety rules:
 - `zen clean --execute` can kill only expired leases with verified process
   identity.
 - `zen adopt PID` is observe-only unless `--allow-kill` is explicit.
-- Docker cleanup requires `--allow-docker`.
+- Docker cleanup requires both Zen ownership labels and `--allow-docker`.
 - Heuristic matches are review-only; they are never enough to kill a process.
 - Browsers, terminals, desktop/session processes, and active LLM sessions are
   protected by default.
@@ -181,8 +181,8 @@ Default path:
 ~/.config/zen/policy.json
 ```
 
-The config can extend protected command patterns, disposable container names,
-ephemeral workload patterns, and pressure thresholds.
+The config can extend protected command patterns, disposable container review
+patterns, ephemeral workload patterns, and pressure thresholds.
 
 ## Tests
 
@@ -196,7 +196,7 @@ Current safety coverage verifies:
 - forged/stale process identities are blocked before signal delivery
 - adopted leases without `--allow-kill` survive cleanup
 - Zen-owned expired leases can be stopped
-- Docker stops require `--allow-docker`
+- Docker stops require Zen ownership labels and `--allow-docker`
 - heuristic ephemeral matches are review-only
 - `zen clean --json --execute` is rejected
 
@@ -207,7 +207,7 @@ Current safety coverage verifies:
 - historical pressure logs
 - desktop notifications
 - fleet policy/reporting mode
-- cgroup-owned Docker/container cleanup metadata
+- Docker/container launch helpers that apply Zen ownership labels
 
 ## Non-Goals
 

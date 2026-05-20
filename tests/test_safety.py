@@ -222,12 +222,54 @@ class SafetyTests(unittest.TestCase):
             target="fake-container",
             reason="test",
             command=["sh", "-c", f"touch {Path(self.tmp.name) / 'docker-ran'}"],
+            meta={"owned_by_zen": True},
         )
 
         result = execute_action(action, allow_docker=False)
 
         self.assertIn("blocked docker stop", result)
         self.assertFalse((Path(self.tmp.name) / "docker-ran").exists())
+
+    def test_non_owned_docker_stop_blocked_even_with_allow_docker(self) -> None:
+        action = Action(
+            kind="docker-stop",
+            target="fake-container",
+            reason="test",
+            command=["sh", "-c", f"touch {Path(self.tmp.name) / 'docker-ran'}"],
+        )
+
+        result = execute_action(action, allow_docker=True)
+
+        self.assertIn("blocked non-owned docker stop", result)
+        self.assertFalse((Path(self.tmp.name) / "docker-ran").exists())
+
+    def test_zen_owned_container_can_plan_docker_stop(self) -> None:
+        container = DockerContainer(
+            container_id="abc123",
+            name="zen-owned",
+            image="busybox:latest",
+            status="Up",
+            labels={"io.github.dodge1218.zen.managed": "true"},
+        )
+
+        actions = plan_actions({}, [container], Policy())
+
+        self.assertEqual(actions[0].kind, "docker-stop")
+        self.assertTrue(actions[0].meta["owned_by_zen"])
+        self.assertEqual(actions[0].command, ["docker", "stop", "abc123"])
+
+    def test_disposable_container_heuristic_is_review_only(self) -> None:
+        container = DockerContainer(
+            container_id="abc123",
+            name="not-owned",
+            image="kindest/node:v1.35.0",
+            status="Up",
+        )
+
+        actions = plan_actions({}, [container], Policy(), tier="aggressive")
+
+        self.assertEqual(actions[0].kind, "review")
+        self.assertEqual(actions[0].risk, "review")
 
     def test_ephemeral_heuristic_is_review_only(self) -> None:
         proc = ProcessInfo(

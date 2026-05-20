@@ -107,11 +107,21 @@ This command audits and reports matching containers:
 zen clean --execute
 ```
 
-This command allows Docker stops:
+This command allows Docker stops only for containers carrying Zen ownership
+metadata:
 
 ```bash
 zen clean --execute --allow-docker
 ```
+
+The required label is:
+
+```text
+io.github.dodge1218.zen.managed=true
+```
+
+Name/image matches from policy are review-only. They do not become executable
+Docker stops.
 
 ## Protected Workflows
 
@@ -131,8 +141,8 @@ Validated by automated tests in `tests/test_safety.py`:
 - An adopted `sleep` process without `--allow-kill` survived
   cleanup execution.
 - A `sleep` process started by `zen run --ttl 1s` was stopped after expiry.
-- The known kind PoC container was not stopped by `zen clean --execute` because
-  `--allow-docker` was not present.
+- Non-owned Docker stops were blocked, even when `--allow-docker` was present.
+- Disposable-looking containers produced review actions, not executable stops.
 - A synthetic non-owned kill action was blocked before signal delivery.
 - A forged/stale process identity was blocked before signal delivery.
 - A stale leased process identity became review-only instead of executable.

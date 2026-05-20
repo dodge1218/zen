@@ -56,6 +56,7 @@ class DockerContainer:
     name: str
     image: str
     status: str
+    labels: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

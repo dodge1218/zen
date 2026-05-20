@@ -96,7 +96,7 @@ def recommendations(
     if by_name.get("browsers") and by_name["browsers"].rss_kb >= 2 * 1024 * 1024:
         out.append(Recommendation("protect", "Browsers are large but protected; Zen will not close tabs or browser processes."))
     if any(action.kind == "docker-stop" for action in actions):
-        out.append(Recommendation("optional", "A matching Docker/PoC container is present; Zen will only stop it with `--allow-docker`."))
+        out.append(Recommendation("optional", "A Zen-owned Docker container is present; Zen will only stop it with `--allow-docker`."))
     if any(action.kind == "review" for action in actions):
         out.append(Recommendation("review", "Some work is suspicious or expired but not owned by Zen; it is report-only."))
     if any(action.kind == "kill-tree" and action.meta.get("owned_by_zen") for action in actions):
@@ -128,7 +128,7 @@ def _process_dict(proc: ProcessInfo, redact: bool) -> dict:
 def _action_dict(action: Action, redact: bool) -> dict:
     meta = dict(action.meta)
     if redact:
-        for key in ("cmdline", "cwd", "command", "identity"):
+        for key in ("cmdline", "cwd", "command", "identity", "container_id", "image", "labels"):
             if key in meta:
                 meta[key] = "<redacted>"
     return {

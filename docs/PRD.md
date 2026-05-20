@@ -218,7 +218,7 @@ Zen can report unknown work, but it can only kill owned work.
 
 `zen clean --execute` may kill only expired `zen run` leases or adopted leases
 that were explicitly created with `--allow-kill`. Heuristic matches must remain
-review-only. Docker stops require `--allow-docker`.
+review-only. Docker stops require Zen ownership labels plus `--allow-docker`.
 
 ### Policy Config
 
@@ -250,7 +250,8 @@ The config must allow users to extend or override:
 - print planned actions and reasons
 - avoid protected processes
 - stop expired leased process groups
-- stop known disposable containers
+- report known disposable containers
+- stop explicitly Zen-owned containers only
 - require `--execute` to mutate system state
 
 ## Future Requirements

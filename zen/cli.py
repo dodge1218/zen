@@ -150,8 +150,10 @@ def cmd_docker(policy) -> int:
         tags = []
         if c.name in policy.keep_container_names:
             tags.append("protect")
+        if c.labels.get("io.github.dodge1218.zen.managed") == "true":
+            tags.append("owned")
         if c.name in policy.poc_container_names or any(c.image.startswith(prefix) for prefix in policy.poc_container_images):
-            tags.append("ephemeral")
+            tags.append("review")
         print(f"{c.name:36} {c.status:20} {c.image} {' '.join(tags)}")
     return 0
 
@@ -396,7 +398,7 @@ def _action_label(action, execute: bool, allow_docker: bool) -> str:
         return "DRY "
     if action.kind == "review":
         return "REVIEW"
-    if action.kind == "docker-stop" and not allow_docker and not action.meta.get("owned_by_zen"):
+    if action.kind == "docker-stop" and (not allow_docker or not action.meta.get("owned_by_zen")):
         return "BLOCK"
     if action.kind == "kill-tree" and not action.meta.get("owned_by_zen"):
         return "BLOCK"
