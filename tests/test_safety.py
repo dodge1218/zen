@@ -214,6 +214,29 @@ class SafetyTests(unittest.TestCase):
 
         self.assertEqual([event["kind"] for event in events], ["second"])
 
+    def test_event_log_rotates_before_append(self) -> None:
+        path = event_path()
+        path.write_text('{"kind":"old","ts":1}\n' * 10)
+
+        log_event("new", max_bytes=10, keep=2)
+
+        self.assertEqual(read_events()[-1]["kind"], "new")
+        self.assertTrue(path.with_name("events.jsonl.1").exists())
+        self.assertIn('"kind":"old"', path.with_name("events.jsonl.1").read_text())
+
+    def test_event_log_rotation_respects_keep_count(self) -> None:
+        path = event_path()
+        path.write_text("a" * 20)
+        log_event("first", max_bytes=10, keep=2)
+        path.write_text("b" * 20)
+        log_event("second", max_bytes=10, keep=2)
+        path.write_text("c" * 20)
+        log_event("third", max_bytes=10, keep=2)
+
+        self.assertTrue(path.with_name("events.jsonl.1").exists())
+        self.assertTrue(path.with_name("events.jsonl.2").exists())
+        self.assertFalse(path.with_name("events.jsonl.3").exists())
+
     def test_cmd_events_json_output(self) -> None:
         log_event("unit_test", value=1)
 

@@ -121,8 +121,9 @@ Zen writes local JSONL lifecycle events to:
 ```
 
 The log records lease creation, dead-lease pruning, corrupt lease quarantine,
-blocked actions, and executed actions. It is local operational evidence, not a
-remote telemetry stream.
+blocked actions, and executed actions. It rotates at 5 MiB by default and keeps
+three rotated files. It is local operational evidence and is never sent
+anywhere by Zen.
 
 ## Docker Contract
 
