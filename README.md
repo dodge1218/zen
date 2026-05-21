@@ -47,6 +47,7 @@ control plane for agent workload hygiene.
 - Docker container launcher with Zen ownership and TTL labels
 - locked, atomic lease-state writes with corrupt-file quarantine
 - rotating local JSONL event log for lifecycle and cleanup actions
+- compact pressure history snapshots for after-the-fact swap review
 - observe-only adoption for already-running processes
 - CPU/RAM/process-count budgets via systemd-run when available
 - guarded swap refresh helper with RAM-headroom checks
@@ -119,6 +120,8 @@ zen reap                           # continuously enforce expired owned leases
 zen reap --once                    # one TTL enforcement pass
 zen leases                         # active Zen leases
 zen events                         # recent lifecycle/cleanup events
+zen history --record               # record one pressure history snapshot
+zen history --json                 # show recent pressure history
 zen run --ttl 30m -- command       # run command under a killable Zen lease
 zen adopt PID --ttl 30m            # observe-only lease for existing process
 zen config --init                  # create editable policy config
@@ -180,6 +183,18 @@ Inspect recent lifecycle and cleanup events:
 zen events
 zen events --json --limit 50
 ```
+
+Record and inspect pressure history when you want evidence for what changed
+over time:
+
+```bash
+zen history --record
+zen history
+zen history --json --limit 20
+```
+
+History snapshots are compact and redacted by design: pressure, memory/swap,
+workload buckets, and top process summaries without command lines or cwd.
 
 Refresh swap only after Zen proves enough RAM is available to absorb swapped
 pages plus a headroom buffer:
@@ -257,6 +272,7 @@ Current safety coverage verifies:
 - `zen reap` stops expired owned leases but leaves observe-only leases alive
 - Docker stops require Zen ownership plus expiry labels and `--allow-docker`
 - lifecycle and cleanup events are written to `events.jsonl`
+- pressure history snapshots are written to `history.jsonl`
 - heuristic ephemeral matches are review-only
 - `zen clean --json --execute` is rejected
 - swap refresh refuses to execute without enough RAM headroom
@@ -264,7 +280,6 @@ Current safety coverage verifies:
 ## Roadmap
 
 - direct cgroup v2 backend for hosts without user systemd
-- historical pressure logs
 - desktop notifications
 - fleet policy/reporting mode
 - Docker/container launch helpers with richer resource limits

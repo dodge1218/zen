@@ -12,7 +12,8 @@ from .actions import execute_action
 from .audit import CleanAudit, recommendations, summarize_processes
 from .config import default_policy, policy_path, write_default_policy
 from .docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command
-from .events import log_event, read_events
+from .events import log_event, log_history, read_events, read_history
+from .history import build_pressure_snapshot, history_delta
 from .leases import create_lease, load_leases, prune_dead_leases
 from .policy import plan_actions, pressure_level
 from .runner import build_run_spec, popen_run_spec
@@ -57,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
     events_p = sub.add_parser("events", help="Show recent Zen events.")
     events_p.add_argument("--limit", type=int, default=20)
     events_p.add_argument("--json", action="store_true")
+    history_p = sub.add_parser("history", help="Record or show pressure history snapshots.")
+    history_p.add_argument("--record", action="store_true", help="Record one pressure snapshot.")
+    history_p.add_argument("--limit", type=int, default=10)
+    history_p.add_argument("--json", action="store_true")
     docker_run_p = sub.add_parser("docker-run", help="Run a Docker container with Zen ownership and TTL labels.")
     docker_run_p.add_argument("--ttl", required=True)
     docker_run_p.add_argument("--name")
@@ -134,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_docker(policy)
     if args.cmd == "events":
         return cmd_events(limit=args.limit, json_output=args.json)
+    if args.cmd == "history":
+        return cmd_history(policy, record=args.record, limit=args.limit, json_output=args.json)
     if args.cmd == "docker-run":
         return cmd_docker_run(args)
     if args.cmd == "watch":
@@ -383,6 +390,69 @@ def cmd_events(limit: int, json_output: bool) -> int:
         details = " ".join(f"{key}={value}" for key, value in event.items() if key not in {"ts", "kind"})
         print(f"{ts} {kind} {details}".rstrip())
     return 0
+
+
+def cmd_history(policy, record: bool, limit: int, json_output: bool) -> int:
+    if record:
+        snapshot = build_history_snapshot(policy)
+        log_history(snapshot)
+        log_event(
+            "history_snapshot_recorded",
+            pressure=snapshot["pressure"],
+            swap_used_kb=snapshot["memory"]["swap_used_kb"],
+            mem_available_kb=snapshot["memory"]["mem_available_kb"],
+        )
+    snapshots = read_history(limit=max(0, limit))
+    if json_output:
+        payload = {"snapshots": snapshots}
+        if len(snapshots) >= 2:
+            payload["delta"] = history_delta(snapshots[-2], snapshots[-1])
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if not snapshots:
+        print("No history snapshots. Run `zen history --record` to capture one.")
+        return 0
+    for snapshot in snapshots:
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(snapshot.get("ts", 0))))
+        memory = snapshot.get("memory", {})
+        print(
+            f"{ts} pressure={snapshot.get('pressure', 'unknown')} "
+            f"swap={fmt_kb(int(memory.get('swap_used_kb', 0)))} "
+            f"avail={fmt_kb(int(memory.get('mem_available_kb', 0)))}"
+        )
+        workloads = sorted(snapshot.get("workloads", []), key=lambda item: item.get("swap_kb", 0), reverse=True)
+        for item in workloads[:3]:
+            if item.get("swap_kb", 0) <= 0 and item.get("rss_kb", 0) <= 0:
+                continue
+            print(
+                f"  {item.get('name', 'unknown'):<12} "
+                f"rss={fmt_kb(int(item.get('rss_kb', 0))):>9} "
+                f"swap={fmt_kb(int(item.get('swap_kb', 0))):>9} "
+                f"procs={item.get('count', 0)}"
+            )
+    if len(snapshots) >= 2:
+        delta = history_delta(snapshots[-2], snapshots[-1])
+        print(
+            f"delta: swap={fmt_kb(int(delta['swap_used_kb']))} "
+            f"avail={fmt_kb(int(delta['mem_available_kb']))} "
+            f"over {int(delta['seconds'])}s"
+        )
+    return 0
+
+
+def build_history_snapshot(policy) -> dict:
+    memory = read_memory()
+    load = load_average()
+    load1, _, _ = load
+    processes = list(scan_processes(policy).values())
+    buckets = summarize_processes(processes)
+    return build_pressure_snapshot(
+        pressure=pressure_level(memory, load1, policy),
+        memory=memory,
+        load=load,
+        buckets=buckets,
+        processes=processes,
+    )
 
 
 def cmd_watch(policy, interval: float, tier: str) -> int:

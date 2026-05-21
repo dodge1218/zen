@@ -18,13 +18,22 @@ from zen.audit import CleanAudit
 from zen.cli import (
     cmd_events,
     cmd_explain,
+    cmd_history,
     cmd_swap_refresh,
     explain_action,
     plan_swap_refresh,
     reap_expired_leases,
 )
 from zen.docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command, docker_container_expired
-from zen.events import event_path, log_event, read_events
+from zen.events import (
+    event_path,
+    history_path,
+    log_event,
+    log_history,
+    read_events,
+    read_history,
+)
+from zen.history import build_pressure_snapshot, history_delta
 from zen.leases import create_lease, lease_path, load_leases
 from zen.models import Action, DockerContainer, MemoryInfo, ProcessInfo
 from zen.policy import plan_actions
@@ -220,6 +229,7 @@ class SafetyTests(unittest.TestCase):
         events = read_events(limit=2)
 
         self.assertEqual([event["kind"] for event in events], ["second"])
+        self.assertEqual(read_events(limit=0), [])
 
     def test_event_log_rotates_before_append(self) -> None:
         path = event_path()
@@ -252,6 +262,60 @@ class SafetyTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertIn('"kind": "unit_test"', captured.getvalue())
+
+    def test_history_log_reads_and_rotates(self) -> None:
+        path = history_path()
+        path.write_text('{"kind":"old","ts":1}\n' * 10)
+
+        log_history({"kind": "new", "ts": 2}, max_bytes=10, keep=2)
+
+        self.assertEqual(read_history()[-1]["kind"], "new")
+        self.assertTrue(path.with_name("history.jsonl.1").exists())
+
+    def test_pressure_snapshot_and_delta_shape(self) -> None:
+        memory = MemoryInfo(
+            mem_total_kb=10_000,
+            mem_available_kb=4_000,
+            swap_total_kb=3_000,
+            swap_free_kb=2_000,
+        )
+        buckets = summarize_processes(
+            [
+                ProcessInfo(
+                    pid=1,
+                    ppid=0,
+                    pgid=1,
+                    sid=1,
+                    name="python",
+                    state="S",
+                    rss_kb=100,
+                    swap_kb=50,
+                    cpu_pct=2.5,
+                    cmdline="python worker.py",
+                    tags={"agent"},
+                )
+            ]
+        )
+
+        first = build_pressure_snapshot("green", memory, (1, 2, 3), buckets, [])
+        second = build_pressure_snapshot("yellow", memory, (1, 2, 3), buckets, [])
+        second["memory"]["swap_used_kb"] += 100
+        second["ts"] = first["ts"] + 5
+
+        delta = history_delta(first, second)
+
+        self.assertEqual(first["schema_version"], 1)
+        self.assertEqual(first["workloads"][0]["name"], "agents")
+        self.assertEqual(delta["seconds"], 5)
+        self.assertEqual(delta["swap_used_kb"], 100)
+
+    def test_cmd_history_record_json_output(self) -> None:
+        with _capture_stdout() as captured:
+            result = cmd_history(Policy(), record=True, limit=1, json_output=True)
+
+        self.assertEqual(result, 0)
+        self.assertIn('"snapshots"', captured.getvalue())
+        self.assertEqual(len(read_history()), 1)
 
     def test_concurrent_lease_creates_do_not_clobber_state(self) -> None:
         def create(index: int) -> None:
