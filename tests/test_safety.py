@@ -15,7 +15,7 @@ from pathlib import Path
 from zen.actions import execute_action
 from zen.audit import recommendations, summarize_processes
 from zen.audit import CleanAudit
-from zen.cli import cmd_events, reap_expired_leases
+from zen.cli import cmd_events, cmd_explain, explain_action, reap_expired_leases
 from zen.docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command, docker_container_expired
 from zen.events import event_path, log_event, read_events
 from zen.leases import create_lease, lease_path, load_leases
@@ -551,6 +551,56 @@ class SafetyTests(unittest.TestCase):
 
         self.assertTrue(any("Browsers are large but protected" in message for message in messages))
         self.assertTrue(any("--allow-docker" in message for message in messages))
+
+    def test_explain_action_marks_review_as_review_only(self) -> None:
+        action = Action(kind="review", target="pid:123", reason="possible ephemeral workload", risk="review")
+
+        explanation = explain_action(action)
+
+        self.assertEqual(explanation["status"], "review")
+        self.assertFalse(explanation["gates"][0]["pass"])
+        self.assertIn("never executed", explanation["gates"][0]["detail"])
+
+    def test_explain_action_requires_docker_allow_flag(self) -> None:
+        action = Action(
+            kind="docker-stop",
+            target="zen-owned",
+            reason="expired Zen-owned container",
+            risk="safe",
+            meta={"owned_by_zen": True},
+        )
+
+        blocked = explain_action(action, allow_docker=False)
+        executable = explain_action(action, allow_docker=True)
+
+        self.assertEqual(blocked["status"], "blocked")
+        self.assertEqual(executable["status"], "executable")
+
+    def test_explain_action_requires_owned_process_identity(self) -> None:
+        blocked = Action(
+            kind="kill-tree",
+            target="lease:abc",
+            reason="expired lease",
+            risk="safe",
+            meta={"owned_by_zen": True},
+        )
+        executable = Action(
+            kind="kill-tree",
+            target="lease:def",
+            reason="expired lease",
+            risk="safe",
+            meta={"owned_by_zen": True, "identity": {"uid": 1}},
+        )
+
+        self.assertEqual(explain_action(blocked)["status"], "blocked")
+        self.assertEqual(explain_action(executable)["status"], "executable")
+
+    def test_cmd_explain_json_output(self) -> None:
+        with _capture_stdout() as captured:
+            result = cmd_explain(Policy(), tier="normal", allow_docker=False, json_output=True)
+
+        self.assertEqual(result, 0)
+        self.assertIn('"actions"', captured.getvalue())
 
     def test_clean_audit_json_shape(self) -> None:
         memory = MemoryInfo(mem_total_kb=10, mem_available_kb=5, swap_total_kb=10, swap_free_kb=9)

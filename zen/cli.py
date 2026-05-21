@@ -28,6 +28,15 @@ def main(argv: list[str] | None = None) -> int:
     doctor_p = sub.add_parser("doctor", help="Explain pressure and likely offenders.")
     doctor_p.add_argument("--tier", choices=["safe", "normal", "aggressive"], default="normal")
 
+    explain_p = sub.add_parser("explain", help="Explain cleanup action gates.")
+    explain_p.add_argument("--tier", choices=["safe", "normal", "aggressive"], default="normal")
+    explain_p.add_argument(
+        "--allow-docker",
+        action="store_true",
+        help="Show Docker stops as executable when ownership gates pass.",
+    )
+    explain_p.add_argument("--json", action="store_true")
+
     ps_p = sub.add_parser("ps", help="Show hot processes.")
     ps_p.add_argument("--top", type=int, default=25)
     ps_p.add_argument("--sort", choices=["cpu", "rss", "swap"], default="cpu")
@@ -93,6 +102,13 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status(policy)
     if args.cmd == "doctor":
         return cmd_doctor(policy, tier=args.tier)
+    if args.cmd == "explain":
+        return cmd_explain(
+            policy,
+            tier=args.tier,
+            allow_docker=args.allow_docker,
+            json_output=args.json,
+        )
     if args.cmd == "ps":
         return cmd_ps(policy, top=args.top, sort=args.sort)
     if args.cmd == "swap":
@@ -150,6 +166,64 @@ def cmd_doctor(policy, tier: str) -> int:
     for action in actions:
         print(f"  [{action.risk}] {action.kind} {action.target} - {action.reason}")
     return 0
+
+
+def cmd_explain(policy, tier: str, allow_docker: bool, json_output: bool) -> int:
+    processes = scan_processes(policy)
+    containers = scan_docker(policy)
+    actions = plan_actions(processes, containers, policy, tier=tier)
+    explanations = [explain_action(action, allow_docker=allow_docker) for action in actions]
+    if json_output:
+        print(json.dumps({"actions": explanations}, indent=2, sort_keys=True))
+        return 0
+    if not explanations:
+        print("No cleanup actions found.")
+        return 0
+    for item in explanations:
+        print(f"{item['status'].upper():11} [{item['risk']}] {item['kind']} {item['target']}")
+        print(f"  reason: {item['reason']}")
+        for gate in item["gates"]:
+            state = "pass" if gate["pass"] else "fail"
+            print(f"  {state}: {gate['name']} - {gate['detail']}")
+    return 0
+
+
+def explain_action(action, allow_docker: bool = False) -> dict:
+    gates: list[dict] = []
+
+    def add_gate(name: str, passed: bool, detail: str) -> None:
+        gates.append({"name": name, "pass": passed, "detail": detail})
+
+    status = "blocked"
+    if action.kind == "review":
+        add_gate("heuristic-only", False, "review actions are never executed automatically")
+        status = "review"
+    elif action.kind == "kill-tree":
+        owned = bool(action.meta.get("owned_by_zen"))
+        has_identity = bool(action.meta.get("identity"))
+        add_gate("zen-owned", owned, "process action must come from a Zen lease")
+        add_gate(
+            "identity-recorded",
+            has_identity,
+            "UID, process group, session, and start time are rechecked before signaling",
+        )
+        status = "executable" if owned and has_identity else "blocked"
+    elif action.kind == "docker-stop":
+        owned = bool(action.meta.get("owned_by_zen"))
+        add_gate("zen-owned", owned, "container must have Zen ownership labels")
+        add_gate("docker-enabled", allow_docker, "caller must pass --allow-docker")
+        status = "executable" if owned and allow_docker else "blocked"
+    else:
+        add_gate("known-action", False, "unknown action kinds are blocked")
+
+    return {
+        "kind": action.kind,
+        "target": action.target,
+        "reason": action.reason,
+        "risk": action.risk,
+        "status": status,
+        "gates": gates,
+    }
 
 
 def cmd_ps(policy, top: int, sort: str) -> int:

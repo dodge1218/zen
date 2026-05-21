@@ -39,6 +39,7 @@ control plane for agent workload hygiene.
 - workload buckets: agents, browsers, Docker/Kubernetes, terminals, desktop,
   build tools, services, kernel/system, and other work
 - plain-English recommendations
+- explainable cleanup gates for safe, blocked, and review-only actions
 - dry-run cleanup by default
 - protected browsers, terminals, desktop processes, and active LLM sessions
 - leases with TTLs for agent/build/test work
@@ -100,6 +101,8 @@ CPU/RAM audit:
 ```bash
 zen status                         # pressure summary
 zen doctor                         # top offenders + cleanup plan
+zen explain                        # explain why each cleanup action is gated
+zen explain --json                 # machine-readable action gate report
 zen clean                          # CPU/RAM audit + dry-run cleanup
 zen clean --json                   # machine-readable audit, never executes
 zen clean --execute                # execute only Zen-owned expired leases
