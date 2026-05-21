@@ -15,7 +15,14 @@ from pathlib import Path
 from zen.actions import execute_action
 from zen.audit import recommendations, summarize_processes
 from zen.audit import CleanAudit
-from zen.cli import cmd_events, cmd_explain, explain_action, reap_expired_leases
+from zen.cli import (
+    cmd_events,
+    cmd_explain,
+    cmd_swap_refresh,
+    explain_action,
+    plan_swap_refresh,
+    reap_expired_leases,
+)
 from zen.docker import EXPIRES_LABEL, MANAGED_LABEL, build_docker_run_command, docker_container_expired
 from zen.events import event_path, log_event, read_events
 from zen.leases import create_lease, lease_path, load_leases
@@ -601,6 +608,40 @@ class SafetyTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertIn('"actions"', captured.getvalue())
+
+    def test_swap_refresh_blocks_when_ram_headroom_is_low(self) -> None:
+        memory = MemoryInfo(
+            mem_total_kb=16 * 1024 * 1024,
+            mem_available_kb=2 * 1024 * 1024,
+            swap_total_kb=8 * 1024 * 1024,
+            swap_free_kb=5 * 1024 * 1024,
+        )
+
+        plan = plan_swap_refresh(memory, min_headroom_gb=1.0)
+
+        self.assertEqual(plan["status"], "blocked")
+        self.assertFalse(plan["executable"])
+
+    def test_swap_refresh_ready_when_ram_headroom_is_sufficient(self) -> None:
+        memory = MemoryInfo(
+            mem_total_kb=16 * 1024 * 1024,
+            mem_available_kb=8 * 1024 * 1024,
+            swap_total_kb=8 * 1024 * 1024,
+            swap_free_kb=5 * 1024 * 1024,
+        )
+
+        plan = plan_swap_refresh(memory, min_headroom_gb=1.0)
+
+        self.assertEqual(plan["status"], "ready")
+        self.assertTrue(plan["executable"])
+        self.assertEqual(plan["commands"][0], ["sudo", "-n", "swapoff", "-a"])
+
+    def test_cmd_swap_refresh_json_is_read_only(self) -> None:
+        with _capture_stdout() as captured:
+            result = cmd_swap_refresh(execute=False, min_headroom_gb=2.0, json_output=True)
+
+        self.assertEqual(result, 0)
+        self.assertIn('"commands"', captured.getvalue())
 
     def test_clean_audit_json_shape(self) -> None:
         memory = MemoryInfo(mem_total_kb=10, mem_available_kb=5, swap_total_kb=10, swap_free_kb=9)

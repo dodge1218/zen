@@ -42,6 +42,17 @@ def main(argv: list[str] | None = None) -> int:
     ps_p.add_argument("--sort", choices=["cpu", "rss", "swap"], default="cpu")
 
     sub.add_parser("swap", help="Show swap users.")
+    swap_refresh_p = sub.add_parser(
+        "swap-refresh",
+        help="Safely refresh swap when RAM headroom is sufficient.",
+    )
+    swap_refresh_p.add_argument(
+        "--execute",
+        action="store_true",
+        help="Run sudo -n swapoff -a followed by sudo -n swapon -a.",
+    )
+    swap_refresh_p.add_argument("--min-headroom-gb", type=float, default=2.0)
+    swap_refresh_p.add_argument("--json", action="store_true")
     sub.add_parser("docker", help="Show containers and Zen classification.")
     events_p = sub.add_parser("events", help="Show recent Zen events.")
     events_p.add_argument("--limit", type=int, default=20)
@@ -113,6 +124,12 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_ps(policy, top=args.top, sort=args.sort)
     if args.cmd == "swap":
         return cmd_swap(policy)
+    if args.cmd == "swap-refresh":
+        return cmd_swap_refresh(
+            execute=args.execute,
+            min_headroom_gb=args.min_headroom_gb,
+            json_output=args.json,
+        )
     if args.cmd == "docker":
         return cmd_docker(policy)
     if args.cmd == "events":
@@ -237,6 +254,81 @@ def cmd_swap(policy) -> int:
     processes = sorted(scan_processes(policy).values(), key=lambda p: p.swap_kb, reverse=True)
     _print_processes([p for p in processes if p.swap_kb > 0][:30], include_swap=True)
     return 0
+
+
+def cmd_swap_refresh(execute: bool, min_headroom_gb: float, json_output: bool) -> int:
+    plan = plan_swap_refresh(read_memory(), min_headroom_gb=min_headroom_gb)
+    if json_output:
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0 if not execute or plan["executable"] else 75
+    print("Swap refresh plan:")
+    print(f"  status: {plan['status']}")
+    print(f"  swap used: {fmt_kb(plan['swap_used_kb'])}")
+    print(f"  ram available: {fmt_kb(plan['mem_available_kb'])}")
+    print(f"  required available: {fmt_kb(plan['required_available_kb'])}")
+    print(
+        f"  command: {' '.join(plan['commands'][0])} && "
+        f"{' '.join(plan['commands'][1])}"
+    )
+    print(f"  reason: {plan['reason']}")
+    if not execute:
+        print("Dry run only. Add --execute to refresh swap.")
+        return 0
+    if not plan["executable"]:
+        print("Refusing to refresh swap because the safety gate failed.", file=sys.stderr)
+        return 75
+    off = run_cmd(plan["commands"][0], timeout=300)
+    if off.returncode != 0:
+        if off.stderr.strip():
+            print(off.stderr.strip(), file=sys.stderr)
+        print("swapoff failed; swap was not refreshed", file=sys.stderr)
+        return off.returncode or 1
+    on = run_cmd(plan["commands"][1], timeout=60)
+    if on.returncode != 0:
+        if on.stderr.strip():
+            print(on.stderr.strip(), file=sys.stderr)
+        print("swapon failed after swapoff; inspect swap configuration immediately", file=sys.stderr)
+        return on.returncode or 1
+    log_event(
+        "swap_refreshed",
+        swap_used_kb=plan["swap_used_kb"],
+        mem_available_kb=plan["mem_available_kb"],
+    )
+    print("Swap refreshed.")
+    return 0
+
+
+def plan_swap_refresh(memory, min_headroom_gb: float = 2.0) -> dict:
+    headroom_kb = max(0, int(min_headroom_gb * 1024 * 1024))
+    required_available_kb = memory.swap_used_kb + headroom_kb
+    commands = [["sudo", "-n", "swapoff", "-a"], ["sudo", "-n", "swapon", "-a"]]
+    if memory.swap_total_kb <= 0:
+        status = "skipped"
+        executable = False
+        reason = "no swap is configured"
+    elif memory.swap_used_kb <= 0:
+        status = "skipped"
+        executable = False
+        reason = "swap is already empty"
+    elif memory.mem_available_kb < required_available_kb:
+        status = "blocked"
+        executable = False
+        reason = "available RAM must cover current swap usage plus headroom"
+    else:
+        status = "ready"
+        executable = True
+        reason = "available RAM can absorb swapped pages with the requested headroom"
+    return {
+        "status": status,
+        "executable": executable,
+        "reason": reason,
+        "swap_total_kb": memory.swap_total_kb,
+        "swap_used_kb": memory.swap_used_kb,
+        "mem_available_kb": memory.mem_available_kb,
+        "min_headroom_gb": min_headroom_gb,
+        "required_available_kb": required_available_kb,
+        "commands": commands,
+    }
 
 
 def cmd_docker(policy) -> int:

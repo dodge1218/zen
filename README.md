@@ -49,6 +49,7 @@ control plane for agent workload hygiene.
 - rotating local JSONL event log for lifecycle and cleanup actions
 - observe-only adoption for already-running processes
 - CPU/RAM/process-count budgets via systemd-run when available
+- guarded swap refresh helper with RAM-headroom checks
 - machine-readable JSON output for automation
 - safety tests that prove stale, forged, and non-owned process kills are blocked
 
@@ -109,6 +110,8 @@ zen clean --execute                # execute only Zen-owned expired leases
 zen clean --execute --allow-docker # additionally allow Zen-owned Docker stops
 zen ps --top 25                    # hot processes
 zen swap                           # processes using swap
+zen swap-refresh                   # explain swapoff/swapon safety gates
+zen swap-refresh --execute         # refresh swap only when RAM headroom is safe
 zen docker                         # container classification
 zen docker-run --ttl 30m IMAGE     # run labeled Docker container
 zen watch                          # live pressure loop
@@ -178,6 +181,17 @@ zen events
 zen events --json --limit 50
 ```
 
+Refresh swap only after Zen proves enough RAM is available to absorb swapped
+pages plus a headroom buffer:
+
+```bash
+zen swap-refresh
+zen swap-refresh --execute
+```
+
+Execution uses `sudo -n swapoff -a` followed by `sudo -n swapon -a`, so it
+fails fast instead of hanging on a password prompt.
+
 Run the reaper through systemd user units:
 
 ```bash
@@ -245,11 +259,11 @@ Current safety coverage verifies:
 - lifecycle and cleanup events are written to `events.jsonl`
 - heuristic ephemeral matches are review-only
 - `zen clean --json --execute` is rejected
+- swap refresh refuses to execute without enough RAM headroom
 
 ## Roadmap
 
 - direct cgroup v2 backend for hosts without user systemd
-- process-count enforcement
 - historical pressure logs
 - desktop notifications
 - fleet policy/reporting mode
