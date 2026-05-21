@@ -1,0 +1,7 @@
+[Unit]
+Description=Record one Zen pressure history snapshot
+Documentation=https://github.com/dodge1218/zen
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env zen history --record

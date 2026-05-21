@@ -45,6 +45,26 @@ systemctl --user list-timers 'zen-*'
 journalctl --user -u zen-reap-once.service -n 50
 ```
 
+## Periodic History Snapshots
+
+Use this when you want a compact local trail for answering "what grew swap?"
+after the fact:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp packaging/systemd/zen-history.service packaging/systemd/zen-history.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now zen-history.timer
+```
+
+The sample timer records one `zen history --record` snapshot every five minutes.
+Check status:
+
+```bash
+systemctl --user list-timers 'zen-*'
+journalctl --user -u zen-history.service -n 50
+```
+
 ## Login Sessions
 
 User services normally run while the user manager is active. On systems where
@@ -59,3 +79,5 @@ loginctl enable-linger "$USER"
 
 The reaper executes only expired Zen lease actions. It does not execute
 heuristic process actions and does not execute Docker actions.
+
+The history timer records pressure metadata only. It does not execute cleanup.

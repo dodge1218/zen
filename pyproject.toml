@@ -17,7 +17,6 @@ classifiers = [
 
 [project.scripts]
 zen = "zen.cli:main"
-ram = "zen.cli:main"
 
 [build-system]
 requires = ["hatchling"]

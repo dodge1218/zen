@@ -292,7 +292,6 @@ The config must allow users to extend or override:
 - browser automation stacks
 - Docker and Compose
 - Kubernetes
-- Slack/Discord/desktop notifications
 
 ### Fleet Product
 

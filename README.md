@@ -214,6 +214,7 @@ cp packaging/systemd/zen-reap.service ~/.config/systemd/user/
 systemctl --user enable --now zen-reap.service
 ```
 
+The same folder includes a timer for periodic `zen history --record` snapshots.
 Details: [docs/SYSTEMD.md](docs/SYSTEMD.md)
 
 Budget metadata can be recorded now:
@@ -280,7 +281,6 @@ Current safety coverage verifies:
 ## Roadmap
 
 - direct cgroup v2 backend for hosts without user systemd
-- desktop notifications
 - fleet policy/reporting mode
 - Docker/container launch helpers with richer resource limits
 
