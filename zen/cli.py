@@ -65,6 +65,9 @@ def main(argv: list[str] | None = None) -> int:
     docker_run_p = sub.add_parser("docker-run", help="Run a Docker container with Zen ownership and TTL labels.")
     docker_run_p.add_argument("--ttl", required=True)
     docker_run_p.add_argument("--name")
+    docker_run_p.add_argument("--mem", help="Docker memory limit, e.g. 2g or 750m.")
+    docker_run_p.add_argument("--cpu", type=float, help="Docker CPU core limit, e.g. 1.5.")
+    docker_run_p.add_argument("--pids", type=int, help="Docker process-count limit.")
     docker_run_p.add_argument("image")
     docker_run_p.add_argument("command", nargs=argparse.REMAINDER)
     watch_p = sub.add_parser("watch", help="Continuously print pressure and cleanup plan.")
@@ -361,7 +364,15 @@ def cmd_docker_run(args) -> int:
         print("zen docker-run requires --ttl", file=sys.stderr)
         return 2
     try:
-        run_args, labels = build_docker_run_command(args.image, command, ttl, name=args.name)
+        run_args, labels = build_docker_run_command(
+            args.image,
+            command,
+            ttl,
+            name=args.name,
+            mem=args.mem,
+            cpu=args.cpu,
+            pids=args.pids,
+        )
     except ValueError as exc:
         print(f"invalid docker-run: {exc}", file=sys.stderr)
         return 2

@@ -115,6 +115,7 @@ zen swap-refresh                   # explain swapoff/swapon safety gates
 zen swap-refresh --execute         # refresh swap only when RAM headroom is safe
 zen docker                         # container classification
 zen docker-run --ttl 30m IMAGE     # run labeled Docker container
+zen docker-run --ttl 30m --mem 1g --cpu 1 --pids 128 IMAGE
 zen watch                          # live pressure loop
 zen reap                           # continuously enforce expired owned leases
 zen reap --once                    # one TTL enforcement pass
@@ -172,6 +173,7 @@ Launch Docker work with Zen labels:
 
 ```bash
 zen docker-run --ttl 30m --name test-db postgres:16
+zen docker-run --ttl 30m --mem 1g --cpu 1 --pids 128 redis:7
 ```
 
 Only expired containers launched with Zen ownership and expiry labels are
@@ -282,7 +284,6 @@ Current safety coverage verifies:
 
 - direct cgroup v2 backend for hosts without user systemd
 - fleet policy/reporting mode
-- Docker/container launch helpers with richer resource limits
 
 ## Non-Goals
 

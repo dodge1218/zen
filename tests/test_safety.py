@@ -492,14 +492,37 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(actions[0].risk, "review")
 
     def test_docker_run_command_adds_zen_ttl_labels(self) -> None:
-        command, labels = build_docker_run_command("busybox:latest", ["sleep", "30"], ttl_seconds=60, name="zen-test", now=100)
+        command, labels = build_docker_run_command(
+            "busybox:latest",
+            ["sleep", "30"],
+            ttl_seconds=60,
+            name="zen-test",
+            mem="128m",
+            cpu=0.5,
+            pids=32,
+            now=100,
+        )
 
         self.assertEqual(command[:5], ["docker", "run", "-d", "--name", "zen-test"])
+        self.assertIn("--memory", command)
+        self.assertIn("128m", command)
+        self.assertIn("--cpus", command)
+        self.assertIn("0.5", command)
+        self.assertIn("--pids-limit", command)
+        self.assertIn("32", command)
         self.assertIn("--label", command)
         self.assertEqual(labels[MANAGED_LABEL], "true")
         self.assertEqual(labels[EXPIRES_LABEL], "160")
         self.assertFalse(docker_container_expired(labels, now=159))
         self.assertTrue(docker_container_expired(labels, now=160))
+
+    def test_docker_run_rejects_invalid_resource_limits(self) -> None:
+        with self.assertRaises(ValueError):
+            build_docker_run_command("busybox:latest", [], ttl_seconds=60, mem="0g")
+        with self.assertRaises(ValueError):
+            build_docker_run_command("busybox:latest", [], ttl_seconds=60, cpu=0)
+        with self.assertRaises(ValueError):
+            build_docker_run_command("busybox:latest", [], ttl_seconds=60, pids=-1)
 
     def test_ephemeral_heuristic_is_review_only(self) -> None:
         proc = ProcessInfo(
