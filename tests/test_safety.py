@@ -37,7 +37,14 @@ from zen.history import build_pressure_snapshot, history_delta
 from zen.leases import create_lease, lease_path, load_leases
 from zen.models import Action, DockerContainer, MemoryInfo, ProcessInfo
 from zen.policy import plan_actions
-from zen.runner import build_run_spec, normalize_memory_max, systemd_properties_for_budget
+from zen.runner import (
+    build_run_spec,
+    cgroup_properties_for_budget,
+    normalize_memory_max,
+    popen_run_spec,
+    prepare_cgroup,
+    systemd_properties_for_budget,
+)
 from zen.config import Policy
 from zen.util import process_identity
 
@@ -374,6 +381,13 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(props["CPUQuota"], "125%")
         self.assertEqual(props["TasksMax"], "12")
 
+    def test_budget_properties_are_normalized_for_cgroup_v2(self) -> None:
+        props = cgroup_properties_for_budget({"mem": "1.5g", "cpu": 1.25, "pids": 12})
+
+        self.assertEqual(props["memory.max"], str(int(1.5 * 1024**3)))
+        self.assertEqual(props["cpu.max"], "125000 100000")
+        self.assertEqual(props["pids.max"], "12")
+
     def test_invalid_budget_values_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
             normalize_memory_max("0g")
@@ -384,7 +398,9 @@ class SafetyTests(unittest.TestCase):
 
     def test_budgeted_run_falls_back_when_systemd_disabled(self) -> None:
         old_value = os.environ.get("ZEN_DISABLE_SYSTEMD")
+        old_cgroup = os.environ.get("ZEN_DISABLE_CGROUP")
         os.environ["ZEN_DISABLE_SYSTEMD"] = "1"
+        os.environ["ZEN_DISABLE_CGROUP"] = "1"
         try:
             spec = build_run_spec(["echo", "ok"], {"mem": "64m"})
         finally:
@@ -392,10 +408,50 @@ class SafetyTests(unittest.TestCase):
                 os.environ.pop("ZEN_DISABLE_SYSTEMD", None)
             else:
                 os.environ["ZEN_DISABLE_SYSTEMD"] = old_value
+            if old_cgroup is None:
+                os.environ.pop("ZEN_DISABLE_CGROUP", None)
+            else:
+                os.environ["ZEN_DISABLE_CGROUP"] = old_cgroup
 
         self.assertEqual(spec.command, ["echo", "ok"])
         self.assertEqual(spec.runtime["backend"], "subprocess")
         self.assertFalse(spec.runtime["budgets_enforced"])
+
+    def test_budgeted_run_uses_cgroup_when_systemd_disabled(self) -> None:
+        root = Path(self.tmp.name) / "cgroup"
+        root.mkdir()
+        (root / "cgroup.controllers").write_text("memory cpu pids\n")
+        old_systemd = os.environ.get("ZEN_DISABLE_SYSTEMD")
+        old_root = os.environ.get("ZEN_CGROUP_ROOT")
+        os.environ["ZEN_DISABLE_SYSTEMD"] = "1"
+        os.environ["ZEN_CGROUP_ROOT"] = str(root)
+        try:
+            spec = build_run_spec([sys.executable, "-c", "pass"], {"mem": "64m", "cpu": 0.5, "pids": 4})
+            proc = popen_run_spec(spec)
+            self.assertEqual(proc.wait(timeout=5), 0)
+        finally:
+            if old_systemd is None:
+                os.environ.pop("ZEN_DISABLE_SYSTEMD", None)
+            else:
+                os.environ["ZEN_DISABLE_SYSTEMD"] = old_systemd
+            if old_root is None:
+                os.environ.pop("ZEN_CGROUP_ROOT", None)
+            else:
+                os.environ["ZEN_CGROUP_ROOT"] = old_root
+
+        self.assertEqual(spec.runtime["backend"], "cgroup-v2")
+        self.assertTrue(spec.runtime["budgets_enforced"])
+        cgroup_path = Path(str(spec.runtime["cgroup_path"]))
+        self.assertEqual((cgroup_path / "memory.max").read_text().strip(), str(64 * 1024**2))
+        self.assertEqual((cgroup_path / "cpu.max").read_text().strip(), "50000 100000")
+        self.assertEqual((cgroup_path / "pids.max").read_text().strip(), "4")
+        self.assertIn(str(proc.pid), (cgroup_path / "cgroup.procs").read_text())
+
+    def test_prepare_cgroup_reports_unavailable_controller_root(self) -> None:
+        path, reason = prepare_cgroup({"memory.max": "1"}, root=Path(self.tmp.name) / "missing")
+
+        self.assertIsNone(path)
+        self.assertIn("controllers unavailable", reason)
 
     def test_budgeted_run_uses_systemd_when_available(self) -> None:
         spec = build_run_spec(["echo", "ok"], {"mem": "64m", "cpu": 0.5, "pids": 4}, cwd="/tmp")

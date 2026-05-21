@@ -227,8 +227,10 @@ zen run --class eval --ttl 2h --mem 8g --cpu 4 --pids 128 -- command
 
 When `systemd-run --user --scope` is available, Zen runs budgeted commands in a
 transient systemd scope with `MemoryMax`, `CPUQuota`, and `TasksMax` properties.
-If systemd is unavailable or disabled with `ZEN_DISABLE_SYSTEMD=1`, the command
-still runs and the lease records that budgets were advisory.
+If systemd is unavailable or disabled with `ZEN_DISABLE_SYSTEMD=1`, Zen tries a
+direct cgroup v2 backend when the current cgroup is delegated and writable. If
+neither backend is available, the command still runs and the lease records that
+budgets were advisory. Set `ZEN_DISABLE_CGROUP=1` to force advisory fallback.
 
 ## JSON Output
 
@@ -282,7 +284,6 @@ Current safety coverage verifies:
 
 ## Roadmap
 
-- direct cgroup v2 backend for hosts without user systemd
 - fleet policy/reporting mode
 
 ## Non-Goals
