@@ -123,6 +123,7 @@ zen leases                         # active Zen leases
 zen events                         # recent lifecycle/cleanup events
 zen history --record               # record one pressure history snapshot
 zen history --json                 # show recent pressure history
+zen report                         # redacted host report for fleet collection
 zen run --ttl 30m -- command       # run command under a killable Zen lease
 zen adopt PID --ttl 30m            # observe-only lease for existing process
 zen config --init                  # create editable policy config
@@ -197,6 +198,17 @@ zen history --json --limit 20
 
 History snapshots are compact and redacted by design: pressure, memory/swap,
 workload buckets, and top process summaries without command lines or cwd.
+
+Generate a redacted machine report for fleet collection or support handoff:
+
+```bash
+zen report > zen-report.json
+```
+
+Reports include host pressure, workload buckets, cleanup candidates, leases,
+recent events, and recent history. Host name, lease commands, cwd values, and
+audit command lines are redacted by default. Use `--verbose` only for trusted
+local debugging.
 
 Refresh swap only after Zen proves enough RAM is available to absorb swapped
 pages plus a headroom buffer:
@@ -281,10 +293,6 @@ Current safety coverage verifies:
 - heuristic ephemeral matches are review-only
 - `zen clean --json --execute` is rejected
 - swap refresh refuses to execute without enough RAM headroom
-
-## Roadmap
-
-- fleet policy/reporting mode
 
 ## Non-Goals
 

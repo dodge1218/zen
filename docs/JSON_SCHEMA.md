@@ -17,6 +17,10 @@ Current schema version:
 Backwards-compatible additions may add fields. Removing fields or changing field
 types requires a schema version bump.
 
+`zen report` also emits schema version `1`. Its top-level object wraps the
+redacted `zen clean --json` audit under `audit` and adds host metadata, leases,
+recent history, recent events, and optional history delta.
+
 ## Top-Level Object
 
 ```json
@@ -46,6 +50,32 @@ Fields:
 - `top_memory`: top RSS processes.
 - `actions`: cleanup candidates. These are not executed in JSON mode.
 - `containers`: visible Docker containers.
+
+## `zen report`
+
+```json
+{
+  "schema_version": 1,
+  "generated_at": 1770000000.0,
+  "zen_version": "0.1.0",
+  "host": {},
+  "policy": {},
+  "audit": {},
+  "leases": [],
+  "history": [],
+  "events": []
+}
+```
+
+Fields:
+
+- `host`: redacted host metadata plus a stable hostname hash.
+- `policy`: policy config path metadata. Path is redacted by default.
+- `audit`: same shape as `zen clean --json`.
+- `leases`: active Zen leases, with commands and cwd redacted by default.
+- `history`: recent `zen history` snapshots.
+- `history_delta`: present when at least two snapshots are available.
+- `events`: recent lifecycle events.
 
 ## `load`
 

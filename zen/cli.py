@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import shlex
+import socket
 import sys
 import time
 
+from . import __version__
 from .actions import execute_action
 from .audit import CleanAudit, recommendations, summarize_processes
 from .config import default_policy, policy_path, write_default_policy
@@ -62,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     history_p.add_argument("--record", action="store_true", help="Record one pressure snapshot.")
     history_p.add_argument("--limit", type=int, default=10)
     history_p.add_argument("--json", action="store_true")
+    report_p = sub.add_parser("report", help="Emit a redacted fleet/reporting payload.")
+    report_p.add_argument("--history-limit", type=int, default=10)
+    report_p.add_argument("--event-limit", type=int, default=20)
+    report_p.add_argument("--verbose", action="store_true", help="Include local host name and unredacted audit details.")
     docker_run_p = sub.add_parser("docker-run", help="Run a Docker container with Zen ownership and TTL labels.")
     docker_run_p.add_argument("--ttl", required=True)
     docker_run_p.add_argument("--name")
@@ -144,6 +152,13 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_events(limit=args.limit, json_output=args.json)
     if args.cmd == "history":
         return cmd_history(policy, record=args.record, limit=args.limit, json_output=args.json)
+    if args.cmd == "report":
+        return cmd_report(
+            policy,
+            history_limit=args.history_limit,
+            event_limit=args.event_limit,
+            verbose=args.verbose,
+        )
     if args.cmd == "docker-run":
         return cmd_docker_run(args)
     if args.cmd == "watch":
@@ -449,6 +464,60 @@ def cmd_history(policy, record: bool, limit: int, json_output: bool) -> int:
             f"over {int(delta['seconds'])}s"
         )
     return 0
+
+
+def cmd_report(policy, history_limit: int, event_limit: int, verbose: bool) -> int:
+    print(json.dumps(build_report(policy, history_limit, event_limit, redact=not verbose), indent=2, sort_keys=True))
+    return 0
+
+
+def build_report(policy, history_limit: int = 10, event_limit: int = 20, redact: bool = True) -> dict:
+    audit = build_clean_audit(policy, tier="normal")
+    leases = prune_dead_leases()
+    hostname = socket.gethostname()
+    host = {
+        "hostname": "<redacted>" if redact else hostname,
+        "host_id": hashlib.sha256(hostname.encode()).hexdigest()[:16],
+        "platform": platform.system(),
+        "platform_release": platform.release(),
+        "machine": platform.machine(),
+    }
+    lease_items = []
+    now = time.time()
+    for lease in leases:
+        lease_items.append(
+            {
+                "id": lease.id,
+                "class": lease.klass,
+                "pid": lease.pid,
+                "pgid": lease.pgid,
+                "ttl_seconds": lease.ttl_seconds,
+                "expires_in_seconds": None if lease.expired_at is None else int(lease.expired_at - now),
+                "allow_kill": lease.allow_kill,
+                "budget": lease.budget,
+                "runtime": lease.runtime,
+                "command": "<redacted>" if redact else lease.command,
+                "cwd": None if redact else lease.cwd,
+            }
+        )
+    snapshots = read_history(limit=max(0, history_limit))
+    report = {
+        "schema_version": 1,
+        "generated_at": time.time(),
+        "zen_version": __version__,
+        "host": host,
+        "policy": {
+            "config_path": "<redacted>" if redact else str(policy_path()),
+            "config_exists": policy_path().exists(),
+        },
+        "audit": audit.to_dict(redact=redact),
+        "leases": lease_items,
+        "history": snapshots,
+        "events": read_events(limit=max(0, event_limit)),
+    }
+    if len(snapshots) >= 2:
+        report["history_delta"] = history_delta(snapshots[-2], snapshots[-1])
+    return report
 
 
 def build_history_snapshot(policy) -> dict:

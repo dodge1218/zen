@@ -16,9 +16,11 @@ from zen.actions import execute_action
 from zen.audit import recommendations, summarize_processes
 from zen.audit import CleanAudit
 from zen.cli import (
+    build_report,
     cmd_events,
     cmd_explain,
     cmd_history,
+    cmd_report,
     cmd_swap_refresh,
     explain_action,
     plan_swap_refresh,
@@ -323,6 +325,35 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn('"snapshots"', captured.getvalue())
         self.assertEqual(len(read_history()), 1)
+
+    def test_report_is_redacted_by_default(self) -> None:
+        create_lease(
+            "report-test",
+            ["secret-command"],
+            os.getpid(),
+            os.getpgid(os.getpid()),
+            ttl_seconds=60,
+            cleanup=None,
+            cwd="/secret/cwd",
+            allow_kill=False,
+        )
+        log_event("report_event", secret="value")
+
+        report = build_report(Policy(), history_limit=0, event_limit=1, redact=True)
+
+        self.assertEqual(report["schema_version"], 1)
+        self.assertEqual(report["host"]["hostname"], "<redacted>")
+        self.assertEqual(report["leases"][0]["command"], "<redacted>")
+        self.assertIsNone(report["leases"][0]["cwd"])
+        self.assertIn("audit", report)
+        self.assertEqual(report["events"][-1]["kind"], "report_event")
+
+    def test_cmd_report_json_output(self) -> None:
+        with _capture_stdout() as captured:
+            result = cmd_report(Policy(), history_limit=0, event_limit=0, verbose=False)
+
+        self.assertEqual(result, 0)
+        self.assertIn('"zen_version"', captured.getvalue())
 
     def test_concurrent_lease_creates_do_not_clobber_state(self) -> None:
         def create(index: int) -> None:
